@@ -7,8 +7,8 @@ import (
 
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/chenmingyong0423/go-mongox/builder/query"
 	"github.com/chenmingyong0423/go-mongox/v2"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -27,7 +27,7 @@ func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) e
 }
 
 func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error) {
-	media, err := r.coll.Finder().Filter(bson.M{"Meta.FileID": fid}).FindOne(ctx)
+	media, err := r.coll.Finder().Filter(query.Eq("Meta.FileID", fid)).FindOne(ctx)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, repository.NotFoundError
