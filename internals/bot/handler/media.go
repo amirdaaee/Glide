@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/celestix/gotgproto/dispatcher"
 	"github.com/celestix/gotgproto/dispatcher/handlers"
@@ -18,6 +19,7 @@ type mediaHandler struct {
 	channelID int64
 	wPool     worker.IWorkerPool
 	ll        *zap.Logger
+	mediaRepo repository.IMediaRepository
 }
 
 var _ IHandler = (*mediaHandler)(nil)
@@ -55,7 +57,9 @@ func (h *mediaHandler) handleMedia(ctx *ext.Context, u *ext.Update) error {
 	if err != nil {
 		return fmt.Errorf("can not build media file doc", err)
 	}
-
+	if err = h.mediaRepo.Create(ctx, docDoc); err != nil {
+		return fmt.Errorf("can not create media file", err)
+	}
 	ll.With(zap.Any("doc", docDoc)).Info("media file doc created")
 	if err := h.sendSuccessMsg(ctx, u, docDoc); err != nil {
 		ll.With(zap.Error(err)).Error("can not send success message")

@@ -15,13 +15,12 @@ type MediaRepository struct {
 
 var _ repository.IMediaRepository = (*MediaRepository)(nil)
 
-func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) (*domain.MediaFile, error) {
-	_, err := r.coll.Creator().InsertOne(ctx, media)
-	if err != nil {
-		return nil, fmt.Errorf("can not create media file: %w", err)
+func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) error {
+	if _, err := r.coll.Creator().InsertOne(ctx, media); err != nil {
+		return fmt.Errorf("can not create media file: %w", err)
 	}
 	// TODO: is id applied?
-	return media, nil
+	return nil
 }
 
 func NewMediaRepository(db *mongox.Collection[domain.MediaFile]) repository.IMediaRepository {

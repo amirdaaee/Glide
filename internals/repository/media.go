@@ -7,5 +7,5 @@ import (
 )
 
 type IMediaRepository interface {
-	Create(ctx context.Context, media *domain.MediaFile) (*domain.MediaFile, error)
+	Create(ctx context.Context, media *domain.MediaFile) error
 }

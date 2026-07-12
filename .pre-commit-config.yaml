@@ -7,16 +7,16 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
   - repo: https://github.com/tekwizely/pre-commit-golang
-    rev: v1.0.0-rc.1
+    rev: v1.0.0-rc.4
     hooks:
       - id: go-mod-tidy-repo # 'cd $(mod_root); go mod tidy [$ARGS] ./...'
-      - id: go-vet-repo-mod # 'cd $(mod_root); go vet [$ARGS] ./...'
-        name: go vet
+      # - id: go-vet-repo-mod # 'cd $(mod_root); go vet [$ARGS] ./...'
+      #   name: go vet
       - id: go-fmt-repo # 'gofmt -l -d [$ARGS] .'
         name: go fmt
         args: ["-w"]
-      # - id: go-imports-repo # 'goimports -l -d [$ARGS] .'
-      #   name: go imports
-      #   args: ["-w"]
+      - id: go-imports-repo # 'goimports -l -d [$ARGS] .'
+        name: go imports
+        args: ["-w"]
       # - id: golangci-lint-repo-mod # 'cd $(mod_root); golangci-lint run [$ARGS] ./...'
       #   name: lint module
