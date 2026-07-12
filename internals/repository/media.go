@@ -8,4 +8,5 @@ import (
 
 type IMediaRepository interface {
 	Create(ctx context.Context, media *domain.MediaFile) error
+	GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error)
 }

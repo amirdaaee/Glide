@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/domain"
@@ -20,6 +21,7 @@ type mediaHandler struct {
 	wPool     worker.IWorkerPool
 	ll        *zap.Logger
 	mediaRepo repository.IMediaRepository
+	userRepo  repository.IUserRepository
 }
 
 var _ IHandler = (*mediaHandler)(nil)
@@ -35,8 +37,9 @@ func (h *mediaHandler) Register(d dispatcher.Dispatcher) {
 func (h *mediaHandler) handleMedia(ctx *ext.Context, u *ext.Update) error {
 	ll := h.ll.Named("handleMedia")
 	ll.Debug("new message received")
-	if !u.EffectiveChat().IsAUser() {
-		return fmt.Errorf("message is not from a user")
+	usr, err := h.getUser(ctx, u)
+	if err != nil {
+		return fmt.Errorf("can not get user: %w", err)
 	}
 	worker := h.wPool.GetNextWorker()
 	if worker == nil {
@@ -52,33 +55,45 @@ func (h *mediaHandler) handleMedia(ctx *ext.Context, u *ext.Update) error {
 	if err != nil {
 		return fmt.Errorf("can not get document from forwarded message", err)
 	}
+	mediaDoc, err := h.mediaRepo.GetByFID(ctx, newDoc.ID)
+	if err != nil && !errors.Is(err, repository.NotFoundError) {
+		return fmt.Errorf("can not get media file by fid: %w", err)
+	} else if err == nil {
+		goto addMediaToUser
+	}
 	// Build and store document metadata
-	docDoc, err := h.buildMediaFileDoc(newDoc, fwMsg.ID)
+	mediaDoc, err = h.buildMediaFileDoc(newDoc, fwMsg.ID)
 	if err != nil {
 		return fmt.Errorf("can not build media file doc", err)
 	}
-	if err = h.mediaRepo.Create(ctx, docDoc); err != nil {
+	if err = h.mediaRepo.Create(ctx, mediaDoc); err != nil {
 		return fmt.Errorf("can not create media file", err)
 	}
-	ll.With(zap.Any("doc", docDoc)).Info("media file doc created")
-	if err := h.sendSuccessMsg(ctx, u, docDoc); err != nil {
+addMediaToUser:
+	if err = h.userRepo.AddMedia(ctx, usr.ID, mediaDoc.ID); err != nil {
+		return fmt.Errorf("can not add media to user: %w", err)
+	}
+	ll.With(zap.Any("doc", mediaDoc)).Info("media file doc created")
+	if err := h.sendSuccessMsg(ctx, u, mediaDoc); err != nil {
 		ll.With(zap.Error(err)).Error("can not send success message")
 	}
 	return nil
 }
 
 // buildMediaFileDoc creates a MediaFileDoc from a document and message ID.
-func (h *mediaHandler) buildMediaFileDoc(newDoc any, msgID int) (*domain.MediaFile, error) {
-	doc, ok := newDoc.(*tg.Document)
-	if !ok {
-		return nil, fmt.Errorf("newDoc is not a *tg.Document: %T", newDoc)
+func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int) (*domain.MediaFile, error) {
+	docMeta := domain.MediaFileMeta{}
+	for _, attr := range doc.Attributes {
+		switch v := attr.(type) {
+		case *tg.DocumentAttributeFilename:
+			docMeta.FileName = v.FileName
+		}
 	}
-	docMeta, err := MediaFileMetaFromDocument(doc)
-	if err != nil {
-		return nil, fmt.Errorf("can not get document meta: %w", err)
-	}
+	docMeta.FileSize = doc.Size
+	docMeta.MimeType = doc.MimeType
+	docMeta.FileID = doc.ID
 	return &domain.MediaFile{
-		Meta:      *docMeta,
+		Meta:      docMeta,
 		MessageID: msgID,
 	}, nil
 }
@@ -94,24 +109,34 @@ func (h *mediaHandler) sendSuccessMsg(ctx *ext.Context, u *ext.Update, doc *doma
 	return nil
 }
 
+func (h *mediaHandler) getUser(ctx *ext.Context, u *ext.Update) (*domain.User, error) {
+	if !u.EffectiveChat().IsAUser() {
+		return nil, fmt.Errorf("message is not from a user")
+	}
+	user, err := h.userRepo.GetByTelegramID(ctx, u.EffectiveUser().ID)
+	if err != nil {
+		if errors.Is(err, repository.NotFoundError) {
+			user = &domain.User{
+				TelegramID:   u.EffectiveUser().ID,
+				Username:     u.EffectiveUser().Username,
+				FirstName:    u.EffectiveUser().FirstName,
+				LastName:     u.EffectiveUser().LastName,
+				LanguageCode: u.EffectiveUser().LangCode,
+			}
+			if err = h.userRepo.Create(ctx, user); err != nil {
+				return nil, fmt.Errorf("can not create user: %w", err)
+			}
+			return user, nil
+		}
+		return nil, fmt.Errorf("can not get user: %w", err)
+	}
+	return user, nil
+}
+
 // NewMediaHandler creates a new handler instance with the given dependencies.
 // Returns an error if any dependency is nil.
 func NewMediaHandler(channelID int64) (IHandler, error) {
 	return &mediaHandler{
 		channelID: channelID,
 	}, nil
-}
-
-func MediaFileMetaFromDocument(doc *tg.Document) (*domain.MediaFileMeta, error) {
-	docMeta := domain.MediaFileMeta{}
-	for _, attr := range doc.Attributes {
-		switch v := attr.(type) {
-		case *tg.DocumentAttributeFilename:
-			docMeta.FileName = v.FileName
-		}
-	}
-	docMeta.FileSize = doc.Size
-	docMeta.MimeType = doc.MimeType
-	docMeta.FileID = doc.ID
-	return &docMeta, nil
 }

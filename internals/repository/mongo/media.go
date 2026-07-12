@@ -2,11 +2,14 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/chenmingyong0423/go-mongox/v2"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type MediaRepository struct {
@@ -21,6 +24,17 @@ func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) e
 	}
 	// TODO: is id applied?
 	return nil
+}
+
+func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error) {
+	media, err := r.coll.Finder().Filter(bson.M{"Meta.FileID": fid}).FindOne(ctx)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, repository.NotFoundError
+		}
+		return nil, fmt.Errorf("can not get media file by fid: %w", err)
+	}
+	return media, nil
 }
 
 func NewMediaRepository(db *mongox.Collection[domain.MediaFile]) repository.IMediaRepository {
