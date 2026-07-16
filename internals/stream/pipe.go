@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/amirdaaee/Glide/internals/log"
-	"github.com/amirdaaee/Glide/internals/tlg"
+	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/celestix/gotgproto"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
@@ -46,7 +46,7 @@ type StreamPipe struct {
 	log    *zap.Logger
 
 	// tg connection
-	client   *gotgproto.Client
+	wp       worker.IWorkerPool
 	location tg.InputFileLocationClass
 
 	// range stuff
@@ -123,6 +123,7 @@ func (p *StreamPipe) prefetch() {
 	currentBlock := 0
 	offset := alignedStart
 
+	wrkr := p.wp.GetNextWorker()
 	for currentBlock < totalBlocks {
 		// check for cancellation
 		select {
@@ -147,10 +148,11 @@ func (p *StreamPipe) prefetch() {
 				blockNum := currentBlock + idx
 				blockOffset := offset + int64(idx)*p.blockSize
 
-				data, err := p.downloadBlockWithRetry(blockOffset)
+				data, err := p.downloadBlockWithRetry(blockOffset, wrkr)
 				dataLen := int64(len(data))
 
 				if err != nil {
+					// TODO: switch worker if needed
 					errMu.Lock()
 					if fetchErr == nil {
 						fetchErr = err
@@ -214,13 +216,13 @@ func (p *StreamPipe) prefetch() {
 }
 
 // downloadBlockWithRetry fetches a block with exponential backoff retry.
-func (p *StreamPipe) downloadBlockWithRetry(offset int64) ([]byte, error) {
+func (p *StreamPipe) downloadBlockWithRetry(offset int64, wrkr worker.IWorker) ([]byte, error) {
 	var lastErr error
 
 	// TODO: make configurable later
 	backoff := 100 * time.Millisecond   // initial backoff = 100ms
 	const maxBackoff = 15 * time.Second // max backoff = 15s
-
+	client := wrkr.GetClient()
 	for attempt := 0; attempt < p.streamConfig.StreamMaxRetries; attempt++ {
 		// check context before each attempt
 		if p.ctx.Err() != nil {
@@ -228,7 +230,7 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64) ([]byte, error) {
 		}
 
 		ctx, cancel := context.WithTimeout(p.ctx, time.Duration(p.streamConfig.StreamTimeoutSec)*time.Second)
-		data, err := p.downloadBlock(ctx, offset)
+		data, err := p.downloadBlock(ctx, offset, client)
 		cancel()
 
 		if err == nil {
@@ -241,7 +243,6 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64) ([]byte, error) {
 		if p.ctx.Err() != nil {
 			return nil, p.ctx.Err()
 		}
-
 		// exponential backoff
 		select {
 		case <-time.After(backoff):
@@ -259,9 +260,9 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64) ([]byte, error) {
 }
 
 // downloadBlock fetches a single block from Telegram.
-func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64) ([]byte, error) {
+func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64, client *gotgproto.Client) ([]byte, error) {
 	p.log.Sugar().Debugf("Downloading block at offset %d (block size: %d)", offset, p.blockSize)
-	res, err := p.client.API().UploadGetFile(ctx, &tg.UploadGetFileRequest{
+	res, err := client.API().UploadGetFile(ctx, &tg.UploadGetFileRequest{
 		Offset:   offset,
 		Limit:    int(p.blockSize),
 		Location: p.location,
@@ -283,15 +284,21 @@ func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64) ([]byte, e
 	}
 }
 
+type StreamOpt struct {
+	Start int64
+	End   int64
+}
+
 // class function which creates a StreamPipe with default configuration.
 func NewStreamPipe(
 	ctx context.Context,
-	client tlg.IClient,
+	wp worker.IWorkerPool,
 	location tg.InputFileLocationClass,
-	start, end int64,
+	opts StreamOpt,
 	streamConfig *StreamConfig,
 ) (io.ReadCloser, error) {
-
+	start := opts.Start
+	end := opts.End
 	if start > end {
 		return nil, fmt.Errorf("invalid range: start (%d) > end (%d)", start, end)
 	}
@@ -305,7 +312,7 @@ func NewStreamPipe(
 		ctx:          ctx,
 		cancel:       cancel,
 		log:          log.GetLogger(log.STREAM),
-		client:       client.GetClient(),
+		wp:           wp,
 		location:     location,
 		start:        start,
 		end:          end,

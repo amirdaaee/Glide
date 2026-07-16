@@ -30,7 +30,7 @@ var _ IHandler = (*mediaHandler)(nil)
 func (h *mediaHandler) Register(d dispatcher.Dispatcher) {
 	ll := h.ll.Named("Register")
 	ll.Info("registering handler")
-	d.AddHandler(handlers.NewMessage(filters.Message.Media, HandlerWithErrorMessage(h.handleMedia, "media")))
+	d.AddHandler(handlers.NewMessage(filters.Message.Audio, HandlerWithErrorMessage(h.handleMedia, "media")))
 }
 
 // handleDoc processes incoming media messages from users, forwards them, and stores metadata.
