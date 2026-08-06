@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -15,9 +17,37 @@ const AUTH_TGNAME_KEY = "auth_tgname"
 
 const telegramOIDCIssuer = "https://oauth.telegram.org"
 
+// flexInt64 unmarshals Telegram claim IDs that may be JSON numbers or strings.
+type flexInt64 int64
+
+func (v *flexInt64) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*v = 0
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return err
+		}
+		*v = flexInt64(n)
+		return nil
+	}
+	var n int64
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	*v = flexInt64(n)
+	return nil
+}
+
 type TgUserData struct {
-	TgID   int64  `json:"id"`
-	TgName string `json:"name"`
+	TgID   flexInt64 `json:"id"`
+	TgName string    `json:"name"`
 }
 
 type TgAuthenticationMiddleware struct {
@@ -50,7 +80,7 @@ func (m *TgAuthenticationMiddleware) MiddlewareFunc() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse token claims"})
 			return
 		}
-		c.Set(AUTH_TGID_KEY, tgUser.TgID)
+		c.Set(AUTH_TGID_KEY, int64(tgUser.TgID))
 		c.Set(AUTH_TGNAME_KEY, tgUser.TgName)
 
 		c.Next()

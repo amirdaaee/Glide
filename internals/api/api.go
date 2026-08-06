@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/amirdaaee/Glide/internals/api/handler"
+	"github.com/amirdaaee/Glide/internals/api/middleware"
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type ApiServer struct {
@@ -45,6 +47,7 @@ func (a *ApiServer) Start(ctx context.Context) error {
 
 func NewApiServer(config *config.ApiConfigType, handlers []handler.IApiHandler) *ApiServer {
 	router := gin.Default()
+	router.Use(middleware.ErrorHandler(zap.L()))
 	for _, handler := range handlers {
 		handler.RegisterRoutes(router)
 	}

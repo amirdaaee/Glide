@@ -7,9 +7,9 @@ import (
 
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository"
-	"github.com/chenmingyong0423/go-mongox/builder/query"
-	"github.com/chenmingyong0423/go-mongox/builder/update"
 	"github.com/chenmingyong0423/go-mongox/v2"
+	"github.com/chenmingyong0423/go-mongox/v2/builder/query"
+	"github.com/chenmingyong0423/go-mongox/v2/builder/update"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -44,7 +44,7 @@ func (r *UserRepository) UpsertByTelegramID(ctx context.Context, user *domain.Us
 		Set("FirstName", user.FirstName).
 		Set("LastName", user.LastName).
 		SetOnInsert("TelegramID", user.TelegramID).
-		SetOnInsert("MediaList", []bson.ObjectID{}).
+		SetOnInsert("MediaList", bson.A{}).
 		Build()
 	if _, err := r.coll.Updater().
 		Filter(query.Eq("TelegramID", user.TelegramID)).

@@ -4,9 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
+	apiErr "github.com/amirdaaee/Glide/internals/api/err"
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository"
@@ -22,12 +26,40 @@ const (
 	telegramOIDCIssuer  = "https://oauth.telegram.org"
 )
 
+// flexInt64 unmarshals Telegram claim IDs that may be JSON numbers or strings.
+type flexInt64 int64
+
+func (v *flexInt64) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*v = 0
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return err
+		}
+		*v = flexInt64(n)
+		return nil
+	}
+	var n int64
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	*v = flexInt64(n)
+	return nil
+}
+
 type tgProfileClaims struct {
-	ID                int64  `json:"id"`
-	Name              string `json:"name"`
-	GivenName         string `json:"given_name"`
-	FamilyName        string `json:"family_name"`
-	PreferredUsername string `json:"preferred_username"`
+	ID                flexInt64 `json:"id"`
+	Name              string    `json:"name"`
+	GivenName         string    `json:"given_name"`
+	FamilyName        string    `json:"family_name"`
+	PreferredUsername string    `json:"preferred_username"`
 }
 
 type AuthHandler struct {
@@ -50,7 +82,7 @@ func (h *AuthHandler) RegisterRoutes(router *gin.Engine) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	state, err := randomString(32)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate state"})
+		c.Error(fmt.Errorf("failed to generate state: %w", err))
 		return
 	}
 	verifier := oauth2.GenerateVerifier()
@@ -63,70 +95,67 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 func (h *AuthHandler) Callback(c *gin.Context) {
 	if errDesc := c.Query("error"); errDesc != "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             errDesc,
-			"error_description": c.Query("error_description"),
-		})
+		c.Error(apiErr.NewBadrequestError(errors.New(errDesc)))
 		return
 	}
 
 	stateCookie, err := c.Cookie(oauthStateCookie)
 	if err != nil || stateCookie == "" || stateCookie != c.Query("state") {
 		h.clearOAuthCookies(c)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid OAuth state"})
+		c.Error(apiErr.NewBadrequestError(errors.New("invalid OAuth state")))
 		return
 	}
 
 	verifier, err := c.Cookie(oauthVerifierCookie)
 	if err != nil || verifier == "" {
 		h.clearOAuthCookies(c)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing PKCE verifier"})
+		c.Error(apiErr.NewBadrequestError(errors.New("missing PKCE verifier")))
 		return
 	}
 	h.clearOAuthCookies(c)
 
 	code := c.Query("code")
 	if code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing authorization code"})
+		c.Error(apiErr.NewBadrequestError(errors.New("missing authorization code")))
 		return
 	}
 
 	oauth2Token, err := h.oauth2Config.Exchange(c.Request.Context(), code, oauth2.VerifierOption(verifier))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to exchange token"})
+		c.Error(fmt.Errorf("failed to exchange token: %w", err))
 		return
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "No id_token field in oauth2 token"})
+		c.Error(apiErr.NewBadrequestError(errors.New("no id_token field in oauth2 token")))
 		return
 	}
 
 	idToken, err := h.verifier.Verify(c.Request.Context(), rawIDToken)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired id_token"})
+		c.Error(apiErr.NewBadrequestError(errors.New("invalid or expired id_token")))
 		return
 	}
 
 	var claims tgProfileClaims
 	if err := idToken.Claims(&claims); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse token claims"})
+		c.Error(fmt.Errorf("failed to parse token claims: %w", err))
 		return
 	}
 	if claims.ID == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Missing telegram user id in token claims"})
+		c.Error(apiErr.NewBadrequestError(errors.New("missing telegram user id in token claims")))
 		return
 	}
 
 	user := &domain.User{
-		TelegramID: claims.ID,
+		TelegramID: int64(claims.ID),
 		Username:   claims.PreferredUsername,
 		FirstName:  claims.GivenName,
 		LastName:   claims.FamilyName,
 	}
 	if err := h.userRepo.UpsertByTelegramID(c.Request.Context(), user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upsert user"})
+		c.Error(fmt.Errorf("failed to upsert user: %w", err))
 		return
 	}
 
