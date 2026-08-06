@@ -9,6 +9,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/chenmingyong0423/go-mongox/builder/query"
 	"github.com/chenmingyong0423/go-mongox/v2"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -35,6 +36,24 @@ func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.Medi
 		return nil, fmt.Errorf("can not get media file by fid: %w", err)
 	}
 	return media, nil
+}
+
+func (r *MediaRepository) GetMany(ctx context.Context, ids []bson.ObjectID) ([]*domain.MediaFile, error) {
+	if len(ids) == 0 {
+		return []*domain.MediaFile{}, nil
+	}
+	media, err := r.coll.Finder().Filter(query.In("_id", ids...)).Find(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("can not get media files: %w", err)
+	}
+	return media, nil
+}
+
+func (r *MediaRepository) Delete(ctx context.Context, fid int64) error {
+	if _, err := r.coll.Deleter().Filter(query.Eq("Meta.FileID", fid)).DeleteOne(ctx); err != nil {
+		return fmt.Errorf("can not delete media file: %w", err)
+	}
+	return nil
 }
 
 func NewMediaRepository(db *mongox.Collection[domain.MediaFile]) repository.IMediaRepository {

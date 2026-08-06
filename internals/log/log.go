@@ -4,7 +4,6 @@ import (
 	"os"
 	"sync"
 
-	godotenv "github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -32,30 +31,25 @@ func Named(module LogNS, component string) *zap.Logger {
 	return GetLogger(module).Named(component)
 }
 
-func Setup() {
+func Setup(dev bool, level string) {
 	loggerOnce.Do(func() {
-		// Load .env early so logger config can read env vars.
-		if _, err := os.Stat(".env"); err == nil {
-			_ = godotenv.Load()
-		}
-
 		var llCfg zap.Config
-		if os.Getenv("RUNTIME_DEV") == "true" || os.Getenv("RUNTIME_DEV") == "1" {
+		if dev {
 			llCfg = zap.NewDevelopmentConfig()
 		} else {
 			llCfg = zap.NewProductionConfig()
 		}
-		levelStr := os.Getenv("RUNTIME_LOG_LEVEL")
-
-		if levelStr != "" {
-			level, err := zap.ParseAtomicLevel(levelStr)
-			if err != nil {
-				zap.L().Warn("can not parse log level; using default", zap.String("level", levelStr), zap.String("default", llCfg.Level.String()), zap.Error(err))
-			} else {
-				llCfg.Level = level
-			}
+		ll, err := zap.ParseAtomicLevel(level)
+		if err != nil {
+			zap.L().With(zap.Error(err)).Error("failed to parse log level. using default")
+			return
 		}
-		logger, _ := llCfg.Build(zap.AddStacktrace(zap.ErrorLevel))
+		llCfg.Level = ll
+		logger, err := llCfg.Build(zap.AddStacktrace(zap.ErrorLevel))
+		if err != nil {
+			zap.L().With(zap.Error(err)).Error("failed to build logger. using default")
+			return
+		}
 		zap.ReplaceGlobals(logger)
 	})
 }

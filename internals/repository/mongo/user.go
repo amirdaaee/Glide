@@ -37,6 +37,24 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	}
 	return nil
 }
+
+func (r *UserRepository) UpsertByTelegramID(ctx context.Context, user *domain.User) error {
+	updateVal := update.NewBuilder().
+		Set("Username", user.Username).
+		Set("FirstName", user.FirstName).
+		Set("LastName", user.LastName).
+		SetOnInsert("TelegramID", user.TelegramID).
+		SetOnInsert("MediaList", []bson.ObjectID{}).
+		Build()
+	if _, err := r.coll.Updater().
+		Filter(query.Eq("TelegramID", user.TelegramID)).
+		Updates(updateVal).
+		Upsert(ctx); err != nil {
+		return fmt.Errorf("can not upsert user by telegram id: %w", err)
+	}
+	return nil
+}
+
 func (r *UserRepository) AddMedia(ctx context.Context, userID, mediaID bson.ObjectID) error {
 	updateVal := update.NewBuilder().
 		Push("MediaList", mediaID).
@@ -45,4 +63,20 @@ func (r *UserRepository) AddMedia(ctx context.Context, userID, mediaID bson.Obje
 		return fmt.Errorf("can not add media to user: %w", err)
 	}
 	return nil
+}
+
+func (r *UserRepository) ListMedia(ctx context.Context, userID bson.ObjectID) ([]bson.ObjectID, error) {
+	user, err := r.coll.Finder().Filter(query.Id(userID)).FindOne(ctx)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, repository.NotFoundError
+		}
+		return nil, fmt.Errorf("can not list media for user: %w", err)
+	}
+	return user.MediaList, nil
+}
+
+func NewUserRepository(db *mongox.Database, name string) repository.IUserRepository {
+	coll := mongox.NewCollection[domain.User](db, name)
+	return &UserRepository{coll: coll}
 }
