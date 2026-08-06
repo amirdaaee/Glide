@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
+	apiErr "github.com/amirdaaee/Glide/internals/api/err"
 	"github.com/amirdaaee/Glide/internals/api/middleware"
 	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/gin-gonic/gin"
@@ -25,17 +27,17 @@ func (h *MediaHandler) RegisterRoutes(router *gin.Engine) {
 func (h *MediaHandler) List(c *gin.Context) {
 	userID := middleware.GetTgIDFromContext(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.Error(apiErr.ErrUnauthorized)
 		return
 	}
 	user, err := h.userRepo.GetByTelegramID(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list media"})
+		c.Error(fmt.Errorf("failed to get user by telegram id: %w", err))
 		return
 	}
 	media, err := h.userRepo.ListMedia(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list media"})
+		c.Error(fmt.Errorf("failed to list media: %w", err))
 		return
 	}
 	c.JSON(http.StatusOK, media)
@@ -44,12 +46,12 @@ func (h *MediaHandler) List(c *gin.Context) {
 func (h *MediaHandler) Get(c *gin.Context) {
 	var req MediaUriParam
 	if err := c.ShouldBindUri(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(apiErr.NewBadrequestError(err))
 		return
 	}
 	media, err := h.mediaRepo.GetByFID(c.Request.Context(), req.FID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get media"})
+		c.Error(fmt.Errorf("failed to get media: %w", err))
 		return
 	}
 	c.JSON(http.StatusOK, media)
@@ -57,11 +59,11 @@ func (h *MediaHandler) Get(c *gin.Context) {
 func (h *MediaHandler) Delete(c *gin.Context) {
 	var req MediaUriParam
 	if err := c.ShouldBindUri(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(apiErr.NewBadrequestError(err))
 		return
 	}
 	if err := h.mediaRepo.Delete(c.Request.Context(), req.FID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete media"})
+		c.Error(fmt.Errorf("failed to delete media: %w", err))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Media deleted successfully"})
