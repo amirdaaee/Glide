@@ -76,6 +76,15 @@ func (r *UserRepository) ListMedia(ctx context.Context, userID bson.ObjectID) ([
 	return user.MediaList, nil
 }
 
+func (r *UserRepository) DeleteMedia(ctx context.Context, userID bson.ObjectID, mediaID bson.ObjectID) error {
+	updateVal := update.NewBuilder().
+		Pull("MediaList", mediaID).
+		Build()
+	if _, err := r.coll.Updater().Filter(query.Id(userID)).Updates(updateVal).UpdateOne(ctx); err != nil {
+		return fmt.Errorf("can not delete media from user: %w", err)
+	}
+	return nil
+}
 func NewUserRepository(db *mongox.Database, name string) repository.IUserRepository {
 	coll := mongox.NewCollection[domain.User](db, name)
 	return &UserRepository{coll: coll}

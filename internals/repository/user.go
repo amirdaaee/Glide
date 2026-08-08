@@ -13,4 +13,5 @@ type IUserRepository interface {
 	UpsertByTelegramID(ctx context.Context, user *domain.User) error
 	AddMedia(ctx context.Context, userID, mediaID bson.ObjectID) error
 	ListMedia(ctx context.Context, userID bson.ObjectID) ([]bson.ObjectID, error)
+	DeleteMedia(ctx context.Context, userID, mediaID bson.ObjectID) error
 }

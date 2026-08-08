@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	apiErr "github.com/amirdaaee/Glide/internals/api/err"
 	"github.com/amirdaaee/Glide/internals/api/middleware"
+	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/gin-gonic/gin"
 )
@@ -25,14 +27,8 @@ func (h *MediaHandler) RegisterRoutes(router *gin.Engine) {
 }
 
 func (h *MediaHandler) List(c *gin.Context) {
-	userID := middleware.GetTgIDFromContext(c)
-	if userID == 0 {
-		c.Error(apiErr.ErrUnauthorized)
-		return
-	}
-	user, err := h.userRepo.GetByTelegramID(c.Request.Context(), userID)
-	if err != nil {
-		c.Error(fmt.Errorf("failed to get user by telegram id: %w", err))
+	user := h.getUser(c)
+	if len(c.Errors) > 0 {
 		return
 	}
 	media, err := h.userRepo.ListMedia(c.Request.Context(), user.ID)
@@ -51,18 +47,35 @@ func (h *MediaHandler) Get(c *gin.Context) {
 	}
 	media, err := h.mediaRepo.GetByFID(c.Request.Context(), req.FID)
 	if err != nil {
+		if errors.Is(err, repository.NotFoundError) {
+			c.Error(apiErr.ErrNotFound)
+			return
+		}
 		c.Error(fmt.Errorf("failed to get media: %w", err))
 		return
 	}
 	c.JSON(http.StatusOK, media)
 }
 func (h *MediaHandler) Delete(c *gin.Context) {
+	user := h.getUser(c)
+	if len(c.Errors) > 0 {
+		return
+	}
 	var req MediaUriParam
 	if err := c.ShouldBindUri(&req); err != nil {
 		c.Error(apiErr.NewBadrequestError(err))
 		return
 	}
-	if err := h.mediaRepo.Delete(c.Request.Context(), req.FID); err != nil {
+	media, err := h.mediaRepo.GetByFID(c.Request.Context(), req.FID)
+	if err != nil {
+		if errors.Is(err, repository.NotFoundError) {
+			c.Error(apiErr.ErrNotFound)
+			return
+		}
+		c.Error(fmt.Errorf("failed to get media: %w", err))
+		return
+	}
+	if err := h.userRepo.DeleteMedia(c.Request.Context(), user.ID, media.ID); err != nil {
 		c.Error(fmt.Errorf("failed to delete media: %w", err))
 		return
 	}
@@ -70,4 +83,18 @@ func (h *MediaHandler) Delete(c *gin.Context) {
 }
 func (h *MediaHandler) Stream(c *gin.Context) {
 
+}
+
+func (h *MediaHandler) getUser(c *gin.Context) *domain.User {
+	userID := middleware.GetTgIDFromContext(c)
+	if userID == 0 {
+		c.Error(apiErr.ErrUnauthorized)
+		return nil
+	}
+	user, err := h.userRepo.GetByTelegramID(c.Request.Context(), userID)
+	if err != nil {
+		c.Error(fmt.Errorf("failed to get user by telegram id: %w", err))
+		return nil
+	}
+	return user
 }
