@@ -19,8 +19,8 @@ var rootCmd = &cobra.Command{
 	Use:   "Glide",
 	Short: "Glide is a tool for managing your Telegram media library",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		dev, _ := cmd.PersistentFlags().GetBool("dev")
-		level, _ := cmd.PersistentFlags().GetString("log-level")
+		dev, _ := cmd.Flags().GetBool("dev")
+		level, _ := cmd.Flags().GetString("log-level")
 		log.Setup(dev, level)
 		registerGracefulShutdown(cmd)
 	},
@@ -34,9 +34,9 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.SilenceUsage = true
 	rootCmd.PersistentFlags().BoolP("dev", "d", false, "Run in development mode")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "warning", "Log level")
+	rootCmd.SilenceUsage = true
 }
 
 func registerGracefulShutdown(cmd *cobra.Command) {

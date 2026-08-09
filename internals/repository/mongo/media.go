@@ -56,6 +56,7 @@ func (r *MediaRepository) Delete(ctx context.Context, fid int64) error {
 	return nil
 }
 
-func NewMediaRepository(db *mongox.Collection[domain.MediaFile]) repository.IMediaRepository {
-	return &MediaRepository{coll: db}
+func NewMediaRepository(db *mongox.Database, name string) repository.IMediaRepository {
+	coll := mongox.NewCollection[domain.MediaFile](db, name)
+	return &MediaRepository{coll: coll}
 }

@@ -2,13 +2,12 @@
 package bot
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/log"
-	"github.com/celestix/gotgproto/dispatcher"
-	"github.com/celestix/gotgproto/dispatcher/handlers"
-	"github.com/celestix/gotgproto/ext"
-	tgTypes "github.com/celestix/gotgproto/types"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
 )
@@ -17,60 +16,117 @@ import (
 //
 //go:generate mockgen -source=handler.go -destination=../../mocks/bot/handler.go -package=mocks
 type IHandler interface {
-	// Register registers the handler with the given bot instance.
-	Register(d dispatcher.Dispatcher)
+	Register(d *tg.UpdateDispatcher)
 }
 
-func HandlerWithErrorMessage(fn handlers.CallbackResponse, name string) handlers.CallbackResponse {
+type messageHandlerFunc func(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error
+
+func HandlerWithErrorMessage(fn messageHandlerFunc, name string) messageHandlerFunc {
 	ll := log.Named(log.BOT, "handler").Named(name)
-	_fn := func(c *ext.Context, u *ext.Update) error {
-		err := fn(c, u)
+	return func(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error {
+		err := fn(ctx, api, entities, msg)
 		if err != nil {
-			if _, err := c.Reply(u, ext.ReplyTextString(err.Error()), &ext.ReplyOpts{ReplyToMessageId: u.EffectiveMessage.ID}); err != nil {
-				ll.With(zap.Error(err)).Error("error writing err message")
+			if sendErr := replyText(ctx, api, entities, msg, err.Error()); sendErr != nil {
+				ll.With(zap.Error(sendErr)).Error("error writing err message")
 			}
 			return err
 		}
 		return nil
 	}
-	return _fn
 }
 
-// forward forwards a message from one chat to another and returns the new message.
-// It takes the context, update, and target chat ID, and returns the forwarded message or an error.
-func forward(ctx *ext.Context, u *ext.Update, targetID int64) (*tgTypes.Message, error) {
+func replyText(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, text string) error {
+	peer, err := peerFromMessage(entities, msg)
+	if err != nil {
+		return fmt.Errorf("can not resolve peer for reply: %w", err)
+	}
+	_, err = api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
+		Peer:     peer,
+		Message:  text,
+		ReplyTo:  &tg.InputReplyToMessage{ReplyToMsgID: msg.ID},
+		RandomID: randomID(),
+	})
+	return err
+}
+
+func peerFromMessage(entities tg.Entities, msg *tg.Message) (tg.InputPeerClass, error) {
+	switch p := msg.PeerID.(type) {
+	case *tg.PeerUser:
+		if user, ok := entities.Users[p.UserID]; ok {
+			return user.AsInputPeer(), nil
+		}
+		return &tg.InputPeerUser{UserID: p.UserID}, nil
+	case *tg.PeerChat:
+		return &tg.InputPeerChat{ChatID: p.ChatID}, nil
+	case *tg.PeerChannel:
+		if ch, ok := entities.Channels[p.ChannelID]; ok {
+			return ch.AsInputPeer(), nil
+		}
+		return nil, fmt.Errorf("channel %d not in entities", p.ChannelID)
+	default:
+		return nil, fmt.Errorf("unsupported peer type: %T", msg.PeerID)
+	}
+}
+
+func userFromUpdate(entities tg.Entities, msg *tg.Message) (*tg.User, error) {
+	var userID int64
+	switch p := msg.PeerID.(type) {
+	case *tg.PeerUser:
+		userID = p.UserID
+	default:
+		if from, ok := msg.FromID.(*tg.PeerUser); ok {
+			userID = from.UserID
+		} else {
+			return nil, fmt.Errorf("message is not from a user")
+		}
+	}
+	user, ok := entities.Users[userID]
+	if !ok {
+		return nil, fmt.Errorf("user %d not in entities", userID)
+	}
+	return user, nil
+}
+
+func randomID() int64 {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return int64(binary.LittleEndian.Uint64(b[:]))
+}
+
+// forward forwards a message from the user chat to the storage channel and returns the new channel message.
+func forward(ctx context.Context, api *tg.Client, fromPeer tg.InputPeerClass, toPeer tg.InputPeerClass, msgID int) (*tg.Message, error) {
 	ll := log.Named(log.BOT, "forward")
-	fromChat := u.EffectiveChat().GetID()
-	toChat := targetID
-	msgID := u.EffectiveMessage.ID
-	ll.With(zap.Int64("fromChat", fromChat), zap.Int64("toChat", toChat), zap.Int("msgID", msgID)).Debug("forwarding message")
-	newUCls, err := ctx.ForwardMessages(fromChat, toChat, &tg.MessagesForwardMessagesRequest{
-		ID: []int{u.EffectiveMessage.ID},
+	ll.With(zap.Int("msgID", msgID)).Debug("forwarding message")
+	newUCls, err := api.MessagesForwardMessages(ctx, &tg.MessagesForwardMessagesRequest{
+		FromPeer: fromPeer,
+		ToPeer:   toPeer,
+		ID:       []int{msgID},
+		RandomID: []int64{randomID()},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can not forward message: %w", err)
-	} else {
-		ll.Debug("message forwarded")
 	}
-	// Type assertion: ensure newUCls is of type *tg.Updates
+	ll.Debug("message forwarded")
 	upd, ok := newUCls.(*tg.Updates)
 	if !ok {
 		return nil, fmt.Errorf("upd is not a *tg.Updates: %T", newUCls)
 	}
-	var newMsg tg.MessageClass
-	for c, u := range upd.Updates {
-		ll.With(zap.Int("c", c), zap.String("u", fmt.Sprintf("%T", u))).Debug("update")
+	var newMsg *tg.Message
+	for _, u := range upd.Updates {
 		fwMsg, ok := u.(*tg.UpdateNewChannelMessage)
 		if !ok {
 			continue
 		}
-		newMsg = fwMsg.Message
+		m, ok := fwMsg.Message.(*tg.Message)
+		if !ok {
+			continue
+		}
+		newMsg = m
 		break
 	}
 	if newMsg == nil {
 		return nil, fmt.Errorf("no message in update found")
 	}
-	m := tgTypes.ConstructMessage(newMsg)
-	ll.With(zap.Any("m", m)).Debug("got forwarded message")
-	return m, nil
+	ll.With(zap.Int("msgID", newMsg.ID)).Debug("got forwarded message")
+	return newMsg, nil
 }

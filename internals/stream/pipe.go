@@ -9,7 +9,6 @@ import (
 
 	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/worker"
-	"github.com/celestix/gotgproto"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
 )
@@ -222,7 +221,7 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64, wrkr worker.IWorker) (
 	// TODO: make configurable later
 	backoff := 100 * time.Millisecond   // initial backoff = 100ms
 	const maxBackoff = 15 * time.Second // max backoff = 15s
-	client := wrkr.GetClient()
+	api := wrkr.API()
 	for attempt := 0; attempt < p.streamConfig.StreamMaxRetries; attempt++ {
 		// check context before each attempt
 		if p.ctx.Err() != nil {
@@ -230,7 +229,7 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64, wrkr worker.IWorker) (
 		}
 
 		ctx, cancel := context.WithTimeout(p.ctx, time.Duration(p.streamConfig.StreamTimeoutSec)*time.Second)
-		data, err := p.downloadBlock(ctx, offset, client)
+		data, err := p.downloadBlock(ctx, offset, api)
 		cancel()
 
 		if err == nil {
@@ -260,9 +259,12 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64, wrkr worker.IWorker) (
 }
 
 // downloadBlock fetches a single block from Telegram.
-func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64, client *gotgproto.Client) ([]byte, error) {
+func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64, api *tg.Client) ([]byte, error) {
 	p.log.Sugar().Debugf("Downloading block at offset %d (block size: %d)", offset, p.blockSize)
-	res, err := client.API().UploadGetFile(ctx, &tg.UploadGetFileRequest{
+	if api == nil {
+		return nil, fmt.Errorf("telegram api is not ready")
+	}
+	res, err := api.UploadGetFile(ctx, &tg.UploadGetFileRequest{
 		Offset:   offset,
 		Limit:    int(p.blockSize),
 		Location: p.location,

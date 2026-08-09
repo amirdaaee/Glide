@@ -26,10 +26,30 @@ type MongoConfigType struct {
 	PingTimeout     time.Duration `env:"PING_TIMEOUT" envDefault:"5s"`
 }
 
+type BotConfigType struct {
+	Token             string `env:"TOKEN,required"`
+	ChannelID         int64  `env:"CHANNEL_ID,required"`
+	ChannelAccessHash int64  `env:"CHANNEL_ACCESS_HASH"`
+}
+
+type TelegramConfigType struct {
+	AppID      int    `env:"APP_ID,required"`
+	AppHash    string `env:"APP_HASH,required"`
+	SocksProxy string `env:"SOCKS_PROXY"`
+	SessionDir string `env:"SESSION_DIR" envDefault:"sessions"`
+}
+
+type WorkerConfigType struct {
+	Tokens []string `env:"TOKENS,required"`
+}
+
 // ConfigType holds all configuration values loaded from environment variables, including API settings, MongoDB connection details, debug options, and logging preferences.
 type ConfigType struct {
-	ApiConfig     ApiConfigType     `envPrefix:"API_"`
-	MetricsConfig MetricsConfigType `envPrefix:"METRICS_"`
-	AuthConfig    AuthConfigType    `envPrefix:"AUTH_"`
-	MongoConfig   MongoConfigType   `envPrefix:"MONGO_"`
+	ApiConfig      ApiConfigType      `envPrefix:"API_"`
+	MetricsConfig  MetricsConfigType  `envPrefix:"METRICS_"`
+	AuthConfig     AuthConfigType     `envPrefix:"AUTH_"`
+	MongoConfig    MongoConfigType    `envPrefix:"MONGO_"`
+	BotConfig      BotConfigType      `envPrefix:"BOT_"`
+	TelegramConfig TelegramConfigType `envPrefix:"TELEGRAM_"`
+	WorkerConfig   WorkerConfigType   `envPrefix:"WORKER_"`
 }

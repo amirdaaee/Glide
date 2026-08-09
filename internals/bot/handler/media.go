@@ -1,59 +1,99 @@
 package bot
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/tlg"
 	"github.com/amirdaaee/Glide/internals/worker"
-	"github.com/celestix/gotgproto/dispatcher"
-	"github.com/celestix/gotgproto/dispatcher/handlers"
-	"github.com/celestix/gotgproto/dispatcher/handlers/filters"
-	"github.com/celestix/gotgproto/ext"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
 )
 
 // mediaHandler implements IHandler for processing media messages.
 type mediaHandler struct {
-	channelID int64
-	wPool     worker.IWorkerPool
-	ll        *zap.Logger
-	mediaRepo repository.IMediaRepository
-	userRepo  repository.IUserRepository
+	cl                tlg.IClient
+	channelID         int64
+	channelAccessHash int64
+	wPool             worker.IWorkerPool
+	ll                *zap.Logger
+	mediaRepo         repository.IMediaRepository
+	userRepo          repository.IUserRepository
 }
 
 var _ IHandler = (*mediaHandler)(nil)
 
-// Register registers the handler with the given bot instance and sets up message handlers.
-func (h *mediaHandler) Register(d dispatcher.Dispatcher) {
+// Register registers the handler with the given update dispatcher.
+func (h *mediaHandler) Register(d *tg.UpdateDispatcher) {
 	ll := h.ll.Named("Register")
-	ll.Info("registering handler")
-	d.AddHandler(handlers.NewMessage(filters.Message.Audio, HandlerWithErrorMessage(h.handleMedia, "media")))
+	ll.Debug("registering handler")
+	wrapped := HandlerWithErrorMessage(h.handleMedia, "media")
+	d.OnNewMessage(func(ctx context.Context, entities tg.Entities, u *tg.UpdateNewMessage) error {
+		ll := h.ll.Named("OnNewMessage")
+		ll.Debug("new message received")
+		msg, ok := u.Message.(*tg.Message)
+		if !ok {
+			return fmt.Errorf("not a message")
+		}
+		api := h.cl.API()
+		if api == nil {
+			return fmt.Errorf("bot client is not ready")
+		}
+		return wrapped(ctx, api, entities, msg)
+	})
+	ll.Debug("registered handler")
+
 }
 
-// handleDoc processes incoming media messages from users, forwards them, and stores metadata.
-func (h *mediaHandler) handleMedia(ctx *ext.Context, u *ext.Update) error {
+func isAudioMessage(msg *tg.Message) bool {
+	media, ok := msg.Media.(*tg.MessageMediaDocument)
+	if !ok || media.Document == nil {
+		return false
+	}
+	doc, ok := media.Document.(*tg.Document)
+	if !ok {
+		return false
+	}
+	for _, attr := range doc.Attributes {
+		if _, ok := attr.(*tg.DocumentAttributeAudio); ok {
+			return true
+		}
+	}
+	return strings.HasPrefix(doc.MimeType, "audio/")
+}
+
+// handleMedia processes incoming media messages from users, forwards them, and stores metadata.
+func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error {
 	ll := h.ll.Named("handleMedia")
 	ll.Debug("new message received")
-	usr, err := h.getUser(ctx, u)
+	if !isAudioMessage(msg) {
+		return fmt.Errorf("not an audio message")
+	}
+	usr, err := h.getUser(ctx, entities, msg)
 	if err != nil {
 		return fmt.Errorf("can not get user: %w", err)
 	}
-	worker := h.wPool.GetNextWorker()
-	if worker == nil {
+	wrkr := h.wPool.GetNextWorker()
+	if wrkr == nil {
 		return fmt.Errorf("no available worker")
 	}
-	// Forward message and process result
-	fwMsg, err := forward(ctx, u, h.channelID)
+	fromPeer, err := peerFromMessage(entities, msg)
+	if err != nil {
+		return fmt.Errorf("can not resolve from peer: %w", err)
+	}
+	toPeer := tlg.ChannelInputPeer(h.channelID, h.channelAccessHash)
+	fwMsg, err := forward(ctx, api, fromPeer, toPeer, msg.ID)
 	if err != nil {
 		return fmt.Errorf("can not forward message to channel: %w", err)
 	}
-	// Get document from forwarded message
-	newDoc, err := worker.GetDoc(ctx, fwMsg.ID)
+	newDoc, err := wrkr.GetDoc(ctx, fwMsg.ID)
 	if err != nil {
-		return fmt.Errorf("can not get document from forwarded message", err)
+		return fmt.Errorf("can not get document from forwarded message: %w", err)
 	}
 	mediaDoc, err := h.mediaRepo.GetByFID(ctx, newDoc.ID)
 	if err != nil && !errors.Is(err, repository.NotFoundError) {
@@ -61,26 +101,24 @@ func (h *mediaHandler) handleMedia(ctx *ext.Context, u *ext.Update) error {
 	} else if err == nil {
 		goto addMediaToUser
 	}
-	// Build and store document metadata
 	mediaDoc, err = h.buildMediaFileDoc(newDoc, fwMsg.ID)
 	if err != nil {
-		return fmt.Errorf("can not build media file doc", err)
+		return fmt.Errorf("can not build media file doc: %w", err)
 	}
 	if err = h.mediaRepo.Create(ctx, mediaDoc); err != nil {
-		return fmt.Errorf("can not create media file", err)
+		return fmt.Errorf("can not create media file: %w", err)
 	}
 addMediaToUser:
 	if err = h.userRepo.AddMedia(ctx, usr.ID, mediaDoc.ID); err != nil {
 		return fmt.Errorf("can not add media to user: %w", err)
 	}
 	ll.With(zap.Any("doc", mediaDoc)).Info("media file doc created")
-	if err := h.sendSuccessMsg(ctx, u, mediaDoc); err != nil {
+	if err := h.sendSuccessMsg(ctx, api, entities, msg, mediaDoc); err != nil {
 		ll.With(zap.Error(err)).Error("can not send success message")
 	}
 	return nil
 }
 
-// buildMediaFileDoc creates a MediaFileDoc from a document and message ID.
 func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int) (*domain.MediaFile, error) {
 	docMeta := domain.MediaFileMeta{}
 	for _, attr := range doc.Attributes {
@@ -98,30 +136,30 @@ func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int) (*domain.M
 	}, nil
 }
 
-// sendSuccessMsg sends a confirmation message to the user after successful processing.
-func (h *mediaHandler) sendSuccessMsg(ctx *ext.Context, u *ext.Update, doc *domain.MediaFile) error {
+func (h *mediaHandler) sendSuccessMsg(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, doc *domain.MediaFile) error {
 	ll := h.ll.Named("sendSuccessMsg")
 	ll.Debug("sending success message")
 	m := fmt.Sprintf("ok: %s (%d)", doc.Meta.FileName, doc.Meta.FileID)
-	if _, err := ctx.Reply(u, ext.ReplyTextString(m), &ext.ReplyOpts{ReplyToMessageId: u.EffectiveMessage.ID}); err != nil {
-		return fmt.Errorf("failed to send success message", err)
+	if err := replyText(ctx, api, entities, msg, m); err != nil {
+		return fmt.Errorf("failed to send success message: %w", err)
 	}
 	return nil
 }
 
-func (h *mediaHandler) getUser(ctx *ext.Context, u *ext.Update) (*domain.User, error) {
-	if !u.EffectiveChat().IsAUser() {
-		return nil, fmt.Errorf("message is not from a user")
+func (h *mediaHandler) getUser(ctx context.Context, entities tg.Entities, msg *tg.Message) (*domain.User, error) {
+	tgUser, err := userFromUpdate(entities, msg)
+	if err != nil {
+		return nil, err
 	}
-	user, err := h.userRepo.GetByTelegramID(ctx, u.EffectiveUser().ID)
+	user, err := h.userRepo.GetByTelegramID(ctx, tgUser.ID)
 	if err != nil {
 		if errors.Is(err, repository.NotFoundError) {
 			user = &domain.User{
-				TelegramID:   u.EffectiveUser().ID,
-				Username:     u.EffectiveUser().Username,
-				FirstName:    u.EffectiveUser().FirstName,
-				LastName:     u.EffectiveUser().LastName,
-				LanguageCode: u.EffectiveUser().LangCode,
+				TelegramID:   tgUser.ID,
+				Username:     tgUser.Username,
+				FirstName:    tgUser.FirstName,
+				LastName:     tgUser.LastName,
+				LanguageCode: tgUser.LangCode,
 			}
 			if err = h.userRepo.Create(ctx, user); err != nil {
 				return nil, fmt.Errorf("can not create user: %w", err)
@@ -134,9 +172,32 @@ func (h *mediaHandler) getUser(ctx *ext.Context, u *ext.Update) (*domain.User, e
 }
 
 // NewMediaHandler creates a new handler instance with the given dependencies.
-// Returns an error if any dependency is nil.
-func NewMediaHandler(channelID int64) (IHandler, error) {
+func NewMediaHandler(
+	cl tlg.IClient,
+	channelID, channelAccessHash int64,
+	wPool worker.IWorkerPool,
+	mediaRepo repository.IMediaRepository,
+	userRepo repository.IUserRepository,
+) (IHandler, error) {
+	if cl == nil {
+		return nil, fmt.Errorf("telegram client is nil")
+	}
+	if wPool == nil {
+		return nil, fmt.Errorf("worker pool is nil")
+	}
+	if mediaRepo == nil {
+		return nil, fmt.Errorf("media repository is nil")
+	}
+	if userRepo == nil {
+		return nil, fmt.Errorf("user repository is nil")
+	}
 	return &mediaHandler{
-		channelID: channelID,
+		cl:                cl,
+		channelID:         channelID,
+		channelAccessHash: channelAccessHash,
+		wPool:             wPool,
+		mediaRepo:         mediaRepo,
+		userRepo:          userRepo,
+		ll:                log.GetLogger(log.BOT).Named("mediaHandler"),
 	}, nil
 }
