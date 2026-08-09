@@ -122,7 +122,6 @@ func (p *StreamPipe) prefetch() {
 	currentBlock := 0
 	offset := alignedStart
 
-	wrkr := p.wp.GetNextWorker()
 	for currentBlock < totalBlocks {
 		// check for cancellation
 		select {
@@ -147,11 +146,10 @@ func (p *StreamPipe) prefetch() {
 				blockNum := currentBlock + idx
 				blockOffset := offset + int64(idx)*p.blockSize
 
-				data, err := p.downloadBlockWithRetry(blockOffset, wrkr)
+				data, err := p.downloadBlockWithRetry(blockOffset)
 				dataLen := int64(len(data))
 
 				if err != nil {
-					// TODO: switch worker if needed
 					errMu.Lock()
 					if fetchErr == nil {
 						fetchErr = err
@@ -214,22 +212,25 @@ func (p *StreamPipe) prefetch() {
 	}
 }
 
-// downloadBlockWithRetry fetches a block with exponential backoff retry.
-func (p *StreamPipe) downloadBlockWithRetry(offset int64, wrkr worker.IWorker) ([]byte, error) {
+// downloadBlockWithRetry fetches a block with exponential backoff retry,
+// rotating to the next worker on each attempt.
+func (p *StreamPipe) downloadBlockWithRetry(offset int64) ([]byte, error) {
 	var lastErr error
 
-	// TODO: make configurable later
-	backoff := 100 * time.Millisecond   // initial backoff = 100ms
-	const maxBackoff = 15 * time.Second // max backoff = 15s
-	api := wrkr.API()
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 15 * time.Second
 	for attempt := 0; attempt < p.streamConfig.StreamMaxRetries; attempt++ {
-		// check context before each attempt
 		if p.ctx.Err() != nil {
 			return nil, p.ctx.Err()
 		}
 
+		wrkr := p.wp.GetNextWorker()
+		if wrkr == nil {
+			return nil, fmt.Errorf("no worker available")
+		}
+
 		ctx, cancel := context.WithTimeout(p.ctx, time.Duration(p.streamConfig.StreamTimeoutSec)*time.Second)
-		data, err := p.downloadBlock(ctx, offset, api)
+		data, err := p.downloadBlock(ctx, offset, wrkr.API())
 		cancel()
 
 		if err == nil {
@@ -237,16 +238,17 @@ func (p *StreamPipe) downloadBlockWithRetry(offset int64, wrkr worker.IWorker) (
 		}
 
 		lastErr = err
+		p.log.Debug("block download attempt failed, rotating worker",
+			zap.Int("attempt", attempt+1),
+			zap.Error(err),
+		)
 
-		// don't retry on context cancellation
 		if p.ctx.Err() != nil {
 			return nil, p.ctx.Err()
 		}
-		// exponential backoff
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
-			// making sure backoff doesn't grow indefinitely in case of persistent failures
 			if backoff > maxBackoff {
 				backoff = maxBackoff
 			}
@@ -264,11 +266,13 @@ func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64, api *tg.Cl
 	if api == nil {
 		return nil, fmt.Errorf("telegram api is not ready")
 	}
-	res, err := api.UploadGetFile(ctx, &tg.UploadGetFileRequest{
+	req := &tg.UploadGetFileRequest{
 		Offset:   offset,
 		Limit:    int(p.blockSize),
 		Location: p.location,
-	})
+	}
+	req.SetPrecise(true)
+	res, err := api.UploadGetFile(ctx, req)
 
 	if err != nil {
 		return nil, err
@@ -278,7 +282,6 @@ func (p *StreamPipe) downloadBlock(ctx context.Context, offset int64, api *tg.Cl
 	case *tg.UploadFile:
 		return result.Bytes, nil
 	case *tg.UploadFileCDNRedirect:
-		// handle CDN redirect if needed (not implemented here, but could be added)
 		// https://core.telegram.org/cdn
 		return nil, fmt.Errorf("CDN redirect not supported in this implementation (redirect to DC %d)", result.DCID)
 	default:
@@ -291,7 +294,7 @@ type StreamOpt struct {
 	End   int64
 }
 
-// class function which creates a StreamPipe with default configuration.
+// NewStreamPipe creates a StreamPipe that prefetches the given byte range via the worker pool.
 func NewStreamPipe(
 	ctx context.Context,
 	wp worker.IWorkerPool,
@@ -299,6 +302,19 @@ func NewStreamPipe(
 	opts StreamOpt,
 	streamConfig *StreamConfig,
 ) (io.ReadCloser, error) {
+	if streamConfig == nil {
+		return nil, fmt.Errorf("stream config is nil")
+	}
+	if wp == nil {
+		return nil, fmt.Errorf("worker pool is nil")
+	}
+	if wp.GetNextWorker() == nil {
+		return nil, fmt.Errorf("worker pool is empty")
+	}
+	if location == nil {
+		return nil, fmt.Errorf("file location is nil")
+	}
+
 	start := opts.Start
 	end := opts.End
 	if start > end {
@@ -324,7 +340,6 @@ func NewStreamPipe(
 		streamConfig: streamConfig,
 	}
 
-	// start prefetching in background
 	go p.prefetch()
 
 	return p, nil

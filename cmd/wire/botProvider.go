@@ -42,7 +42,8 @@ func ProvideWorkerPool(sessCfg *tlg.SessionConfig, cfg *config.ConfigType) (work
 		if token == "" {
 			return nil, fmt.Errorf("WORKER_TOKENS entry %d is empty", i)
 		}
-		cl, err := tlg.NewTgClient(sessCfg, token, "worker")
+		prefix := cfg.WorkerConfig.SessionPrefix
+		cl, err := tlg.NewTgClient(sessCfg, token, prefix)
 		if err != nil {
 			return nil, fmt.Errorf("can not create worker client %d: %w", i, err)
 		}

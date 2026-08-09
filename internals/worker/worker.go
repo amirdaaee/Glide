@@ -69,6 +69,15 @@ func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 	return nil, fmt.Errorf("message %d not found in channel", msgID)
 }
 
+func NewWorker(cl tlg.IClient, channelID, channelAccessHash int64) *Worker {
+	return &Worker{
+		cl:                cl,
+		channelID:         channelID,
+		channelAccessHash: channelAccessHash,
+		ll:                log.GetLogger(log.TELEGRAM).Named("worker"),
+	}
+}
+
 func messagesFromResult(res tg.MessagesMessagesClass) ([]tg.MessageClass, error) {
 	switch msgs := res.(type) {
 	case *tg.MessagesChannelMessages:
@@ -92,13 +101,4 @@ func documentFromMessage(msg *tg.Message) (*tg.Document, error) {
 		return nil, fmt.Errorf("unexpected document type: %T", media.Document)
 	}
 	return doc, nil
-}
-
-func NewWorker(cl tlg.IClient, channelID, channelAccessHash int64) *Worker {
-	return &Worker{
-		cl:                cl,
-		channelID:         channelID,
-		channelAccessHash: channelAccessHash,
-		ll:                log.GetLogger(log.TELEGRAM).Named("worker"),
-	}
 }
