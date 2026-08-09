@@ -19,35 +19,17 @@ import (
 )
 
 //go:generate mockgen -source=client.go -destination=../../mocks/tlg/client.go -package=mocks
+
+// IClient is a single-use Telegram client. After RunBot or StartClient returns
+// (or the background run ends), the instance must not be started again.
 type IClient interface {
 	// RunBot authenticates as a bot and blocks until ctx is cancelled.
 	RunBot(ctx context.Context) error
 	// StartClient runs the client in the background and returns once authenticated.
 	StartClient(ctx context.Context) error
-	// API is valid only while the client is running.
+	// API returns the MTProto API client, or nil before ready and after the run exits.
 	API() *tg.Client
 	SetUpdateHandler(h telegram.UpdateHandler)
-}
-
-type updateHandlerHolder struct {
-	mu sync.RWMutex
-	h  telegram.UpdateHandler
-}
-
-func (h *updateHandlerHolder) Handle(ctx context.Context, u tg.UpdatesClass) error {
-	h.mu.RLock()
-	handler := h.h
-	h.mu.RUnlock()
-	if handler == nil {
-		return nil
-	}
-	return handler.Handle(ctx, u)
-}
-
-func (h *updateHandlerHolder) set(handler telegram.UpdateHandler) {
-	h.mu.Lock()
-	h.h = handler
-	h.mu.Unlock()
 }
 
 type client struct {
@@ -60,10 +42,11 @@ type client struct {
 	handler       *updateHandlerHolder
 	ll            *zap.Logger
 
-	runOnce  sync.Once
-	ready    chan struct{}
-	readyErr error
-	readyMu  sync.Mutex
+	runMu     sync.Mutex
+	ready     chan struct{}
+	readyErr  error
+	readyMu   sync.RWMutex
+	isRunning bool
 }
 
 var _ IClient = (*client)(nil)
@@ -76,6 +59,30 @@ func (tc *client) API() *tg.Client {
 	tc.apiMu.RLock()
 	defer tc.apiMu.RUnlock()
 	return tc.api
+}
+
+func (tc *client) RunBot(ctx context.Context) error {
+	return tc.doRun(ctx)
+}
+
+func (tc *client) StartClient(ctx context.Context) error {
+	go func() {
+		if err := tc.doRun(ctx); err != nil && ctx.Err() == nil {
+			tc.ll.With(zap.Error(err)).Error("client run ended with error")
+		}
+	}()
+	select {
+	case <-tc.ready:
+		return tc.ReadyErr()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (tc *client) ReadyErr() error {
+	tc.readyMu.RLock()
+	defer tc.readyMu.RUnlock()
+	return tc.readyErr
 }
 
 func (tc *client) setAPI(api *tg.Client) {
@@ -95,69 +102,50 @@ func (tc *client) notifyReady(err error) {
 	}
 }
 
-func (tc *client) ReadyErr() error {
-	tc.readyMu.Lock()
-	defer tc.readyMu.Unlock()
-	return tc.readyErr
-}
-
-func (tc *client) RunBot(ctx context.Context) error {
-	return tc.doRun(ctx)
-}
-
-func (tc *client) StartClient(ctx context.Context) error {
-	go func() {
-		if err := tc.doRun(ctx); err != nil && ctx.Err() == nil {
-			tc.ll.With(zap.Error(err)).Error("client run ended with error")
-			tc.notifyReady(err)
-		}
-	}()
-	select {
-	case <-tc.ready:
-		return tc.ReadyErr()
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 func (tc *client) doRun(ctx context.Context) error {
-	var runErr error
-	tc.runOnce.Do(func() {
-		runErr = tc.tg.Run(ctx, func(ctx context.Context) error {
-			ll := tc.ll.Named("Run")
-			status, err := tc.tg.Auth().Status(ctx)
-			if err != nil {
-				return fmt.Errorf("can not get auth status: %w", err)
-			}
-			if !status.Authorized {
-				ll.Info("authorizing as bot")
-				if _, err := tc.tg.Auth().Bot(ctx, tc.token); err != nil {
-					return fmt.Errorf("can not auth as bot: %w", err)
-				}
-			} else {
-				ll.Info("already authorized")
-			}
-			tc.setAPI(tc.tg.API())
-			tc.notifyReady(nil)
-			ll.Info("client ready")
-			<-ctx.Done()
-			return ctx.Err()
-		})
+	tc.runMu.Lock()
+	if tc.isRunning {
+		tc.runMu.Unlock()
+		return fmt.Errorf("client is already running; do not reuse client instance")
+	}
+	tc.isRunning = true
+	tc.runMu.Unlock()
+	return tc.tg.Run(ctx, func(ctx context.Context) error {
+		ll := tc.ll.Named("Run")
+		if err := tc.authorize(ctx); err != nil {
+			tc.notifyReady(err)
+			return fmt.Errorf("can not authorize: %w", err)
+		}
+		tc.setAPI(tc.tg.API())
+		tc.notifyReady(nil)
+		ll.Info("client ready")
+		<-ctx.Done()
+		return ctx.Err()
 	})
-	return runErr
 }
-
+func (tc *client) authorize(ctx context.Context) error {
+	ll := tc.ll.Named("Authorize")
+	status, err := tc.tg.Auth().Status(ctx)
+	if err != nil {
+		return fmt.Errorf("can not get auth status: %w", err)
+	}
+	if !status.Authorized {
+		ll.Info("authorizing as bot")
+		if _, err := tc.tg.Auth().Bot(ctx, tc.token); err != nil {
+			return fmt.Errorf("can not auth as bot: %w", err)
+		}
+	} else {
+		ll.Info("already authorized")
+	}
+	return nil
+}
 func (tc *client) buildTelegramClient() (*telegram.Client, error) {
 	sessCfg := tc.sessCfg
-	if err := os.MkdirAll(sessCfg.SessionDir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(sessCfg.SessionDir, 0o700); err != nil {
 		return nil, fmt.Errorf("can not create session dir: %w", err)
 	}
-	sessionPrefix := tc.sessionPrefix
-	if sessionPrefix == "" {
-		sessionPrefix = "worker"
-	}
-	sessionPath := fmt.Sprintf("%s/%s-%s.json", sessCfg.SessionDir, sessionPrefix, strings.Split(tc.token, ":")[0])
-	tc.ll.Sugar().Infof("session path: %s", sessionPath)
+	sessionPath := fmt.Sprintf("%s/%s-%s.json", sessCfg.SessionDir, tc.sessionPrefix, strings.Split(tc.token, ":")[0])
+	tc.ll.Info("session path", zap.String("path", sessionPath))
 
 	opts := telegram.Options{
 		SessionStorage: &session.FileStorage{Path: sessionPath},
@@ -199,33 +187,4 @@ func NewTgClient(sessCfg *SessionConfig, token, sessionPrefix string) (IClient, 
 	}
 	tc.tg = cl
 	return tc, nil
-}
-
-// BareChannelID converts a Bot API-style channel id (-100…) to an MTProto channel id.
-func BareChannelID(id int64) int64 {
-	if id >= 0 {
-		return id
-	}
-	id = -id
-	const prefix = int64(1_000_000_000_000) // 10^12
-	if id >= prefix {
-		return id % prefix
-	}
-	return id
-}
-
-// ChannelInputPeer builds an InputPeerChannel from config values.
-func ChannelInputPeer(channelID, accessHash int64) *tg.InputPeerChannel {
-	return &tg.InputPeerChannel{
-		ChannelID:  BareChannelID(channelID),
-		AccessHash: accessHash,
-	}
-}
-
-// ChannelInput builds an InputChannel from config values.
-func ChannelInput(channelID, accessHash int64) *tg.InputChannel {
-	return &tg.InputChannel{
-		ChannelID:  BareChannelID(channelID),
-		AccessHash: accessHash,
-	}
 }
