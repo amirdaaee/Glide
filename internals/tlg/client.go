@@ -41,12 +41,9 @@ type client struct {
 	apiMu         sync.RWMutex
 	handler       *updateHandlerHolder
 	ll            *zap.Logger
-
-	runMu     sync.Mutex
-	ready     chan struct{}
-	readyErr  error
-	readyMu   sync.RWMutex
-	isRunning bool
+	ready         *clientReady
+	runMu         sync.Mutex
+	isRunning     bool
 }
 
 var _ IClient = (*client)(nil)
@@ -72,34 +69,17 @@ func (tc *client) StartClient(ctx context.Context) error {
 		}
 	}()
 	select {
-	case <-tc.ready:
-		return tc.ReadyErr()
+	case <-tc.ready.ready:
+		return tc.ready.ReadyErr()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (tc *client) ReadyErr() error {
-	tc.readyMu.RLock()
-	defer tc.readyMu.RUnlock()
-	return tc.readyErr
 }
 
 func (tc *client) setAPI(api *tg.Client) {
 	tc.apiMu.Lock()
 	tc.api = api
 	tc.apiMu.Unlock()
-}
-
-func (tc *client) notifyReady(err error) {
-	tc.readyMu.Lock()
-	tc.readyErr = err
-	tc.readyMu.Unlock()
-	select {
-	case <-tc.ready:
-	default:
-		close(tc.ready)
-	}
 }
 
 func (tc *client) doRun(ctx context.Context) error {
@@ -113,11 +93,11 @@ func (tc *client) doRun(ctx context.Context) error {
 	return tc.tg.Run(ctx, func(ctx context.Context) error {
 		ll := tc.ll.Named("Run")
 		if err := tc.authorize(ctx); err != nil {
-			tc.notifyReady(err)
+			tc.ready.notifyReady(err)
 			return fmt.Errorf("can not authorize: %w", err)
 		}
 		tc.setAPI(tc.tg.API())
-		tc.notifyReady(nil)
+		tc.ready.notifyReady(nil)
 		ll.Info("client ready")
 		<-ctx.Done()
 		return ctx.Err()
@@ -179,7 +159,7 @@ func NewTgClient(sessCfg *SessionConfig, token, sessionPrefix string) (IClient, 
 		sessionPrefix: sessionPrefix,
 		handler:       &updateHandlerHolder{},
 		ll:            log.GetLogger(log.TELEGRAM),
-		ready:         make(chan struct{}),
+		ready:         &clientReady{ready: make(chan struct{}), readyErr: nil, readyMu: sync.RWMutex{}},
 	}
 	cl, err := tc.buildTelegramClient()
 	if err != nil {
@@ -187,4 +167,27 @@ func NewTgClient(sessCfg *SessionConfig, token, sessionPrefix string) (IClient, 
 	}
 	tc.tg = cl
 	return tc, nil
+}
+
+// ===
+type clientReady struct {
+	ready    chan struct{}
+	readyErr error
+	readyMu  sync.RWMutex
+}
+
+func (cr *clientReady) ReadyErr() error {
+	cr.readyMu.RLock()
+	defer cr.readyMu.RUnlock()
+	return cr.readyErr
+}
+func (cr *clientReady) notifyReady(err error) {
+	cr.readyMu.Lock()
+	cr.readyErr = err
+	cr.readyMu.Unlock()
+	select {
+	case <-cr.ready:
+	default:
+		close(cr.ready)
+	}
 }
