@@ -29,7 +29,7 @@ func ProvideApiHandlers(
 	}
 	h = append(h, hAuth)
 
-	hMedia, err := handler.NewMediaHandler(cfg.AuthConfig, mediaRepo, userRepo, wPool, cfg.StreamConfig)
+	hMedia, err := handler.NewMediaHandler(cfg.AuthConfig, mediaRepo, userRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create media handler: %w", err)
 	}

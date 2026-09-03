@@ -44,13 +44,6 @@ type WorkerConfigType struct {
 	SessionPrefix  string   `env:"SESSION_PREFIX" envDefault:"worker"`
 }
 
-type StreamConfigType struct {
-	BufferCount int `env:"BUFFER_COUNT" envDefault:"8"`
-	Concurrency int `env:"CONCURRENCY" envDefault:"4"`
-	MaxRetries  int `env:"MAX_RETRIES" envDefault:"3"`
-	TimeoutSec  int `env:"TIMEOUT_SEC" envDefault:"30"`
-}
-
 // ConfigType holds all configuration values loaded from environment variables, including API settings, MongoDB connection details, debug options, and logging preferences.
 type ConfigType struct {
 	ApiConfig      ApiConfigType      `envPrefix:"API_"`
@@ -60,5 +53,4 @@ type ConfigType struct {
 	BotConfig      BotConfigType      `envPrefix:"BOT_"`
 	TelegramConfig TelegramConfigType `envPrefix:"TELEGRAM_"`
 	WorkerConfig   WorkerConfigType   `envPrefix:"WORKER_"`
-	StreamConfig   StreamConfigType   `envPrefix:"STREAM_"`
 }

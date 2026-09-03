@@ -17,7 +17,6 @@ const (
 	LOG      LogNS = "log"
 	TELEGRAM LogNS = "telegram"
 	BOT      LogNS = "bot"
-	STREAM   LogNS = "stream"
 )
 
 var loggerOnce sync.Once
