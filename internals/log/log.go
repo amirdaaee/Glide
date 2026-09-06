@@ -11,12 +11,15 @@ import (
 type LogNS string
 
 const (
-	API      LogNS = "api"
-	CMD      LogNS = "cmd"
-	CONFIG   LogNS = "config"
-	LOG      LogNS = "log"
-	TELEGRAM LogNS = "telegram"
-	BOT      LogNS = "bot"
+	API          LogNS = "api"
+	CMD          LogNS = "cmd"
+	CONFIG       LogNS = "config"
+	LOG          LogNS = "log"
+	TELEGRAM     LogNS = "telegram"
+	BOT          LogNS = "bot"
+	PIPELINE     LogNS = "pipeline"
+	ORCHESTRATOR LogNS = "orchestrator"
+	WORKERS      LogNS = "workers"
 )
 
 var loggerOnce sync.Once

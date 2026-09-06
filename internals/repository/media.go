@@ -12,4 +12,6 @@ type IMediaRepository interface {
 	GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error)
 	GetMany(ctx context.Context, ids []bson.ObjectID) ([]*domain.MediaFile, error)
 	Delete(ctx context.Context, fid int64) error
+	SetStatus(ctx context.Context, id bson.ObjectID, status domain.MediaStatus) error
+	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
 }

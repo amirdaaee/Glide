@@ -23,7 +23,15 @@ type MongoConfigType struct {
 	DB              string        `env:"DB,required"`
 	UsersCollection string        `env:"USERS_COLLECTION" envDefault:"users"`
 	MediaCollection string        `env:"MEDIA_COLLECTION" envDefault:"media"`
+	JobsCollection  string        `env:"JOBS_COLLECTION" envDefault:"jobs"`
 	PingTimeout     time.Duration `env:"PING_TIMEOUT" envDefault:"5s"`
+}
+
+type NatsConfigType struct {
+	URL        string        `env:"URL" envDefault:"nats://127.0.0.1:4222"`
+	Stream     string        `env:"STREAM" envDefault:"GLIDE_MEDIA"`
+	AckWait    time.Duration `env:"ACK_WAIT" envDefault:"10m"`
+	MaxDeliver int           `env:"MAX_DELIVER" envDefault:"5"`
 }
 
 type BotConfigType struct {
@@ -40,8 +48,8 @@ type TelegramConfigType struct {
 }
 
 type WorkerConfigType struct {
-	Tokens         []string `env:"TOKENS,required"`
-	SessionPrefix  string   `env:"SESSION_PREFIX" envDefault:"worker"`
+	Tokens        []string `env:"TOKENS,required"`
+	SessionPrefix string   `env:"SESSION_PREFIX" envDefault:"worker"`
 }
 
 // ConfigType holds all configuration values loaded from environment variables, including API settings, MongoDB connection details, debug options, and logging preferences.
@@ -53,4 +61,5 @@ type ConfigType struct {
 	BotConfig      BotConfigType      `envPrefix:"BOT_"`
 	TelegramConfig TelegramConfigType `envPrefix:"TELEGRAM_"`
 	WorkerConfig   WorkerConfigType   `envPrefix:"WORKER_"`
+	NatsConfig     NatsConfigType     `envPrefix:"NATS_"`
 }

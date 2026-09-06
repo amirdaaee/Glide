@@ -9,6 +9,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/chenmingyong0423/go-mongox/v2"
 	"github.com/chenmingyong0423/go-mongox/v2/builder/query"
+	"github.com/chenmingyong0423/go-mongox/v2/builder/update"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -52,6 +53,30 @@ func (r *MediaRepository) GetMany(ctx context.Context, ids []bson.ObjectID) ([]*
 func (r *MediaRepository) Delete(ctx context.Context, fid int64) error {
 	if _, err := r.coll.Deleter().Filter(query.Eq("Meta.FileID", fid)).DeleteOne(ctx); err != nil {
 		return fmt.Errorf("can not delete media file: %w", err)
+	}
+	return nil
+}
+
+func (r *MediaRepository) SetStatus(ctx context.Context, id bson.ObjectID, status domain.MediaStatus) error {
+	updateVal := update.NewBuilder().Set("Status", status).Build()
+	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
+	if err != nil {
+		return fmt.Errorf("can not set media status: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return repository.NotFoundError
+	}
+	return nil
+}
+
+func (r *MediaRepository) SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error {
+	updateVal := update.NewBuilder().Set("StorageURL", url).Build()
+	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
+	if err != nil {
+		return fmt.Errorf("can not set media storage url: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return repository.NotFoundError
 	}
 	return nil
 }
