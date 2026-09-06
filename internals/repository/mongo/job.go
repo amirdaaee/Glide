@@ -17,7 +17,8 @@ import (
 )
 
 type JobRepository struct {
-	coll *mongox.Collection[domain.MediaJob]
+	coll      *mongox.Collection[domain.MediaJob]
+	tasksColl *mongox.Collection[domain.ProcessedTask]
 }
 
 var _ repository.IJobRepository = (*JobRepository)(nil)
@@ -84,7 +85,18 @@ func (r *JobRepository) RecordFailure(ctx context.Context, mediaID bson.ObjectID
 	return nil
 }
 
-func (r *JobRepository) MarkTaskDone(ctx context.Context, mediaID bson.ObjectID, taskID string, _ domain.JobStep) error {
+func (r *JobRepository) MarkTaskDone(ctx context.Context, mediaID bson.ObjectID, taskID string, step domain.JobStep) error {
+	task := &domain.ProcessedTask{
+		TaskID:  taskID,
+		MediaID: mediaID,
+		Step:    step,
+		DoneAt:  time.Now().UTC(),
+	}
+	if _, err := r.tasksColl.Creator().InsertOne(ctx, task); err != nil {
+		if !mongo.IsDuplicateKeyError(err) {
+			return fmt.Errorf("can not persist processed task: %w", err)
+		}
+	}
 	updateVal := update.NewBuilder().
 		Set("LastTaskID", taskID).
 		Set("LastError", "").
@@ -100,11 +112,18 @@ func (r *JobRepository) MarkTaskDone(ctx context.Context, mediaID bson.ObjectID,
 }
 
 func (r *JobRepository) IsTaskDone(ctx context.Context, mediaID bson.ObjectID, taskID string) (bool, error) {
-	job, err := r.GetByMediaID(ctx, mediaID)
+	filter := query.NewBuilder().
+		Eq("_id", taskID).
+		Eq("MediaID", mediaID).
+		Build()
+	_, err := r.tasksColl.Finder().Filter(filter).FindOne(ctx)
 	if err != nil {
-		return false, err
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return false, nil
+		}
+		return false, fmt.Errorf("can not get processed task: %w", err)
 	}
-	return job.LastTaskID == taskID, nil
+	return true, nil
 }
 
 func (r *JobRepository) ensureIndexes(ctx context.Context) error {
@@ -121,12 +140,21 @@ func (r *JobRepository) ensureIndexes(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("can not create job indexes: %w", err)
 	}
+	_, err = r.tasksColl.Collection().Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys: bson.D{{Key: "MediaID", Value: 1}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("can not create processed task indexes: %w", err)
+	}
 	return nil
 }
 
-func NewJobRepository(db *mongox.Database, name string) (repository.IJobRepository, error) {
+func NewJobRepository(db *mongox.Database, jobsName, tasksName string) (repository.IJobRepository, error) {
 	r := &JobRepository{
-		coll: mongox.NewCollection[domain.MediaJob](db, name),
+		coll:      mongox.NewCollection[domain.MediaJob](db, jobsName),
+		tasksColl: mongox.NewCollection[domain.ProcessedTask](db, tasksName),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

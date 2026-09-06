@@ -28,7 +28,7 @@ func ProvideMediaRepository(cfg *config.ConfigType, db *mongox.Database) reposit
 }
 
 func ProvideJobRepository(cfg *config.ConfigType, db *mongox.Database) (repository.IJobRepository, error) {
-	return mongo.NewJobRepository(db, cfg.MongoConfig.JobsCollection)
+	return mongo.NewJobRepository(db, cfg.MongoConfig.JobsCollection, cfg.MongoConfig.ProcessedTasksCollection)
 }
 
 func ProvideBotClient(sessCfg *tlg.SessionConfig, cfg *config.ConfigType) (tlg.IClient, error) {

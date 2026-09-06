@@ -19,12 +19,13 @@ type AuthConfigType struct {
 }
 
 type MongoConfigType struct {
-	URI             string        `env:"URI,required"`
-	DB              string        `env:"DB,required"`
-	UsersCollection string        `env:"USERS_COLLECTION" envDefault:"users"`
-	MediaCollection string        `env:"MEDIA_COLLECTION" envDefault:"media"`
-	JobsCollection  string        `env:"JOBS_COLLECTION" envDefault:"jobs"`
-	PingTimeout     time.Duration `env:"PING_TIMEOUT" envDefault:"5s"`
+	URI                      string        `env:"URI,required"`
+	DB                       string        `env:"DB,required"`
+	UsersCollection          string        `env:"USERS_COLLECTION" envDefault:"users"`
+	MediaCollection          string        `env:"MEDIA_COLLECTION" envDefault:"media"`
+	JobsCollection           string        `env:"JOBS_COLLECTION" envDefault:"jobs"`
+	ProcessedTasksCollection string        `env:"PROCESSED_TASKS_COLLECTION" envDefault:"processed_tasks"`
+	PingTimeout              time.Duration `env:"PING_TIMEOUT" envDefault:"5s"`
 }
 
 type NatsConfigType struct {
