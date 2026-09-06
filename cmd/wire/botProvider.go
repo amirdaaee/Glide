@@ -60,14 +60,12 @@ func ProvideWorkerPool(sessCfg *tlg.SessionConfig, cfg *config.ConfigType) (work
 func ProvideBotHandlers(
 	cl tlg.IClient,
 	cfg *config.ConfigType,
-	wPool worker.IWorkerPool,
 	media service.IMediaService,
 ) ([]bothandler.IHandler, error) {
 	h, err := bothandler.NewMediaHandler(
 		cl,
 		cfg.BotConfig.ChannelID,
 		cfg.BotConfig.ChannelAccessHash,
-		wPool,
 		media,
 	)
 	if err != nil {

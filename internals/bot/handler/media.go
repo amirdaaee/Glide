@@ -10,7 +10,6 @@ import (
 	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/tlg"
-	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/gotd/td/tg"
 	"go.uber.org/zap"
 )
@@ -20,7 +19,6 @@ type mediaHandler struct {
 	cl                tlg.IClient
 	channelID         int64
 	channelAccessHash int64
-	wPool             worker.IWorkerPool
 	ll                *zap.Logger
 	media             service.IMediaService
 }
@@ -104,10 +102,6 @@ func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, ent
 	if !errors.Is(err, domain.ErrNotFound) {
 		return nil, err
 	}
-	wrkr := h.wPool.GetNextWorker()
-	if wrkr == nil {
-		return nil, fmt.Errorf("no available worker")
-	}
 	fromPeer, err := peerFromMessage(entities, msg)
 	if err != nil {
 		return nil, fmt.Errorf("can not resolve from peer: %w", err)
@@ -117,7 +111,7 @@ func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, ent
 	if err != nil {
 		return nil, fmt.Errorf("can not forward message to channel: %w", err)
 	}
-	newDoc, err := wrkr.GetDoc(ctx, fwMsg.ID)
+	newDoc, err := h.getChannelDoc(ctx, api, fwMsg.ID)
 	if err != nil {
 		return nil, fmt.Errorf("can not get document from forwarded message: %w", err)
 	}
@@ -126,6 +120,59 @@ func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, ent
 		return nil, fmt.Errorf("can not build media file doc: %w", err)
 	}
 	return mediaFile, nil
+}
+
+func (h *mediaHandler) getChannelDoc(ctx context.Context, api *tg.Client, msgID int) (*tg.Document, error) {
+	res, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+		Channel: tlg.ChannelInput(h.channelID, h.channelAccessHash),
+		ID: []tg.InputMessageClass{
+			&tg.InputMessageID{ID: msgID},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("can not get channel messages: %w", err)
+	}
+	messages, err := messagesFromResult(res)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range messages {
+		msg, ok := m.(*tg.Message)
+		if !ok {
+			continue
+		}
+		doc, err := documentFromMessage(msg)
+		if err != nil {
+			return nil, err
+		}
+		return doc, nil
+	}
+	return nil, fmt.Errorf("message %d not found in channel", msgID)
+}
+
+func messagesFromResult(res tg.MessagesMessagesClass) ([]tg.MessageClass, error) {
+	switch msgs := res.(type) {
+	case *tg.MessagesChannelMessages:
+		return msgs.Messages, nil
+	case *tg.MessagesMessages:
+		return msgs.Messages, nil
+	case *tg.MessagesMessagesSlice:
+		return msgs.Messages, nil
+	default:
+		return nil, fmt.Errorf("unexpected messages response type: %T", res)
+	}
+}
+
+func documentFromMessage(msg *tg.Message) (*tg.Document, error) {
+	media, ok := msg.Media.(*tg.MessageMediaDocument)
+	if !ok || media.Document == nil {
+		return nil, fmt.Errorf("message has no document media")
+	}
+	doc, ok := media.Document.(*tg.Document)
+	if !ok {
+		return nil, fmt.Errorf("unexpected document type: %T", media.Document)
+	}
+	return doc, nil
 }
 
 func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int, fileID int64) (*domain.MediaFile, error) {
@@ -176,14 +223,10 @@ func userProfileFromUpdate(entities tg.Entities, msg *tg.Message) (*domain.User,
 func NewMediaHandler(
 	cl tlg.IClient,
 	channelID, channelAccessHash int64,
-	wPool worker.IWorkerPool,
 	media service.IMediaService,
 ) (IHandler, error) {
 	if cl == nil {
 		return nil, fmt.Errorf("telegram client is nil")
-	}
-	if wPool == nil {
-		return nil, fmt.Errorf("worker pool is nil")
 	}
 	if media == nil {
 		return nil, fmt.Errorf("media service is nil")
@@ -192,7 +235,6 @@ func NewMediaHandler(
 		cl:                cl,
 		channelID:         channelID,
 		channelAccessHash: channelAccessHash,
-		wPool:             wPool,
 		media:             media,
 		ll:                log.GetLogger(log.BOT).Named("mediaHandler"),
 	}, nil
