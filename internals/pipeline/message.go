@@ -42,9 +42,10 @@ type StepError struct {
 }
 
 type IngestPayload struct {
-	UserID    string `json:"user_id"`
-	FromPeer  int64  `json:"from_peer"`
-	MessageID int    `json:"message_id"`
+	ChannelID         int64 `json:"channel_id"`
+	ChannelAccessHash int64 `json:"channel_access_hash"`
+	MessageID         int   `json:"message_id"`
+	FileID            int64 `json:"file_id"`
 }
 
 type DownloadPayload struct {
@@ -63,8 +64,7 @@ type UploadPayload struct {
 }
 
 type IngestOutput struct {
-	MessageID int                  `json:"message_id"`
-	Meta      domain.MediaFileMeta `json:"meta"`
+	ThumbnailURL string `json:"thumbnail_url"`
 }
 
 type DownloadOutput struct {

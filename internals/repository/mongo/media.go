@@ -20,10 +20,12 @@ type MediaRepository struct {
 var _ domain.IMediaRepository = (*MediaRepository)(nil)
 
 func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) error {
+	if media.ID.IsZero() {
+		media.ID = bson.NewObjectID()
+	}
 	if _, err := r.coll.Creator().InsertOne(ctx, media); err != nil {
 		return fmt.Errorf("can not create media file: %w", err)
 	}
-	// TODO: is id applied?
 	return nil
 }
 
@@ -73,6 +75,18 @@ func (r *MediaRepository) SetStorageURL(ctx context.Context, id bson.ObjectID, u
 	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
 	if err != nil {
 		return fmt.Errorf("can not set media storage url: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *MediaRepository) SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error {
+	updateVal := update.NewBuilder().Set("ThumbnailURL", url).Build()
+	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
+	if err != nil {
+		return fmt.Errorf("can not set media thumbnail url: %w", err)
 	}
 	if res.MatchedCount == 0 {
 		return domain.ErrNotFound

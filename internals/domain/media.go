@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"io"
 
 	"github.com/chenmingyong0423/go-mongox/v2"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -29,6 +30,7 @@ type MediaFile struct {
 	Meta         MediaFileMeta `bson:"Meta"`
 	Status       MediaStatus   `bson:"Status"`
 	StorageURL   string        `bson:"StorageURL,omitempty"`
+	ThumbnailURL string        `bson:"ThumbnailURL,omitempty"`
 }
 
 type IMediaRepository interface {
@@ -38,4 +40,10 @@ type IMediaRepository interface {
 	Delete(ctx context.Context, fid int64) error
 	SetStatus(ctx context.Context, id bson.ObjectID, status MediaStatus) error
 	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
+	SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error
+}
+
+type IMediaObjectRepository interface {
+	PutThumbnail(ctx context.Context, id bson.ObjectID, body io.Reader, size int64, contentType string) (string, error)
+	Put(ctx context.Context, id bson.ObjectID, body io.Reader, size int64, contentType string) (string, error)
 }

@@ -42,6 +42,9 @@ func legalJobTransition(from, to domain.JobStep) bool {
 
 func (s *JobService) Create(ctx context.Context, job *domain.MediaJob) error {
 	if err := s.jobs.Create(ctx, job); err != nil {
+		if errors.Is(err, domain.ErrAlreadyExists) {
+			return err
+		}
 		return fmt.Errorf("can not create media job: %w", err)
 	}
 	return nil

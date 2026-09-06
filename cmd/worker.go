@@ -6,6 +6,7 @@ import (
 	"github.com/amirdaaee/Glide/cmd/wire"
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/pipeline"
+	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/amirdaaee/Glide/internals/workers"
 	"github.com/amirdaaee/Glide/internals/workers/download"
 	"github.com/amirdaaee/Glide/internals/workers/ingest"
@@ -20,21 +21,31 @@ var workerCmd = &cobra.Command{
 	Short: "Start a stateless pipeline worker",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		step := domain.JobStep(workerStep)
-		h, err := stepHandler(step)
-		if err != nil {
-			return err
-		}
 		p := wire.GetProvider()
-		return p.Invoke(func(sub pipeline.ISubscriber, pub pipeline.IPublisher) error {
-			return workers.Run(cmd.Context(), sub, pub, step, h)
-		})
+		switch step {
+		case domain.JobStepIngest:
+			return p.Invoke(func(sub pipeline.ISubscriber, pub pipeline.IPublisher, wPool worker.IWorkerPool, ingestWorker *ingest.Worker) error {
+				if err := wPool.Start(cmd.Context()); err != nil {
+					return err
+				}
+				return workers.Run(cmd.Context(), sub, pub, step, ingestWorker)
+			})
+		case domain.JobStepDownload, domain.JobStepUpload:
+			h, err := stepHandler(step)
+			if err != nil {
+				return err
+			}
+			return p.Invoke(func(sub pipeline.ISubscriber, pub pipeline.IPublisher) error {
+				return workers.Run(cmd.Context(), sub, pub, step, h)
+			})
+		default:
+			return fmt.Errorf("unknown worker step %q (want ingest, download, or upload)", step)
+		}
 	},
 }
 
 func stepHandler(step domain.JobStep) (workers.IStepHandler, error) {
 	switch step {
-	case domain.JobStepIngest:
-		return ingest.New(), nil
 	case domain.JobStepDownload:
 		return download.New(), nil
 	case domain.JobStepUpload:

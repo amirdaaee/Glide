@@ -10,5 +10,19 @@ services:
     volumes:
       - mongo_data:/data/db
 
+  minio:
+    image: minio/minio:latest
+    hostname: minio.glide.local
+    command: server /data --console-address ":9001"
+    expose:
+      - 9000
+      - 9001
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+
 volumes:
   mongo_data:
+  minio_data:

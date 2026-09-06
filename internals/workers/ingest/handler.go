@@ -1,20 +1,160 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/pipeline"
+	"github.com/amirdaaee/Glide/internals/service"
+	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/amirdaaee/Glide/internals/workers"
+	"github.com/gotd/td/telegram/downloader"
+	"github.com/gotd/td/tg"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.uber.org/zap"
 )
 
-type Worker struct{}
+type Worker struct {
+	wPool   worker.IWorkerPool
+	objects domain.IMediaObjectRepository
+	media   service.IMediaService
+	ll      *zap.Logger
+}
 
 var _ workers.IStepHandler = (*Worker)(nil)
 
-func (w *Worker) Handle(_ context.Context, msg pipeline.WorkMsg) (*pipeline.ResultMsg, error) {
-	return workers.UnimplementedResult(msg, "ingest"), nil
+func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.ResultMsg, error) {
+	ll := w.ll.Named("Handle").With(
+		zap.String("task_id", msg.TaskID),
+		zap.String("media_id", msg.MediaID),
+	)
+	res := &pipeline.ResultMsg{
+		TaskID:  msg.TaskID,
+		MediaID: msg.MediaID,
+		Step:    msg.Step,
+		Attempt: msg.Attempt,
+	}
+	var payload pipeline.IngestPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		res.Error = &pipeline.StepError{Message: "invalid ingest payload", Permanent: true}
+		return res, nil
+	}
+	mediaID, err := bson.ObjectIDFromHex(msg.MediaID)
+	if err != nil {
+		res.Error = &pipeline.StepError{Message: "invalid media id", Permanent: true}
+		return res, nil
+	}
+	wrkr := w.wPool.GetNextWorker()
+	if wrkr == nil {
+		return nil, fmt.Errorf("no available telegram worker")
+	}
+	doc, err := wrkr.GetDoc(ctx, payload.MessageID)
+	if err != nil {
+		return nil, fmt.Errorf("can not get channel document: %w", err)
+	}
+	thumb, contentType, err := downloadThumbnail(ctx, wrkr.API(), doc)
+	if err != nil {
+		res.Error = &pipeline.StepError{Message: err.Error(), Permanent: true}
+		return res, nil
+	}
+	url, err := w.objects.PutThumbnail(ctx, mediaID, bytes.NewReader(thumb), int64(len(thumb)), contentType)
+	if err != nil {
+		return nil, fmt.Errorf("can not store thumbnail: %w", err)
+	}
+	if err := w.media.SetThumbnailURL(ctx, mediaID, url); err != nil {
+		return nil, fmt.Errorf("can not set thumbnail url: %w", err)
+	}
+	out, err := json.Marshal(pipeline.IngestOutput{ThumbnailURL: url})
+	if err != nil {
+		return nil, fmt.Errorf("can not marshal ingest output: %w", err)
+	}
+	res.OK = true
+	res.Output = out
+	ll.Info("thumbnail stored", zap.String("url", url))
+	return res, nil
 }
 
-func New() *Worker {
-	return &Worker{}
+func downloadThumbnail(ctx context.Context, api *tg.Client, doc *tg.Document) ([]byte, string, error) {
+	if api == nil {
+		return nil, "", fmt.Errorf("telegram client is not ready")
+	}
+	thumbType, cached := pickThumbnail(doc.Thumbs)
+	if len(cached) > 0 {
+		return cached, "image/jpeg", nil
+	}
+	if thumbType == "" {
+		return nil, "", fmt.Errorf("document has no thumbnail")
+	}
+	loc := &tg.InputDocumentFileLocation{
+		ID:            doc.ID,
+		AccessHash:    doc.AccessHash,
+		FileReference: doc.FileReference,
+		ThumbSize:     thumbType,
+	}
+	var buf bytes.Buffer
+	kind, err := downloader.NewDownloader().Download(api, loc).Stream(ctx, &buf)
+	if err != nil {
+		return nil, "", fmt.Errorf("can not download thumbnail: %w", err)
+	}
+	return buf.Bytes(), mimeFromStorage(kind), nil
+}
+
+func pickThumbnail(thumbs []tg.PhotoSizeClass) (thumbType string, cached []byte) {
+	bestArea := -1
+	for _, t := range thumbs {
+		switch s := t.(type) {
+		case *tg.PhotoSize:
+			if area := s.W * s.H; area > bestArea {
+				bestArea = area
+				thumbType = s.Type
+				cached = nil
+			}
+		case *tg.PhotoSizeProgressive:
+			if area := s.W * s.H; area > bestArea {
+				bestArea = area
+				thumbType = s.Type
+				cached = nil
+			}
+		case *tg.PhotoCachedSize:
+			if area := s.W * s.H; area > bestArea {
+				bestArea = area
+				thumbType = ""
+				cached = s.Bytes
+			}
+		}
+	}
+	return thumbType, cached
+}
+
+func mimeFromStorage(kind tg.StorageFileTypeClass) string {
+	switch kind.(type) {
+	case *tg.StorageFilePng:
+		return "image/png"
+	case *tg.StorageFileWebp:
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
+}
+
+func New(wPool worker.IWorkerPool, objects domain.IMediaObjectRepository, media service.IMediaService) (*Worker, error) {
+	if wPool == nil {
+		return nil, fmt.Errorf("worker pool is nil")
+	}
+	if objects == nil {
+		return nil, fmt.Errorf("media object repository is nil")
+	}
+	if media == nil {
+		return nil, fmt.Errorf("media service is nil")
+	}
+	return &Worker{
+		wPool:   wPool,
+		objects: objects,
+		media:   media,
+		ll:      log.GetLogger(log.WORKERS).Named("ingest"),
+	}, nil
 }

@@ -16,11 +16,13 @@ type IMediaService interface {
 	EnsureAttached(ctx context.Context, user *domain.User, media *domain.MediaFile) (*domain.MediaFile, error)
 	SetStatus(ctx context.Context, id bson.ObjectID, status domain.MediaStatus) error
 	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
+	SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error
 }
 
 type MediaService struct {
-	media domain.IMediaRepository
-	users IUserService
+	media  domain.IMediaRepository
+	users  IUserService
+	ingest IIngestDispatcher
 }
 
 var _ IMediaService = (*MediaService)(nil)
@@ -69,6 +71,9 @@ func (s *MediaService) EnsureAttached(ctx context.Context, user *domain.User, me
 	if err := s.users.AttachMedia(ctx, usr.ID, media.ID); err != nil {
 		return nil, err
 	}
+	if err := s.ingest.Dispatch(ctx, media); err != nil {
+		return nil, fmt.Errorf("can not dispatch ingest: %w", err)
+	}
 	return media, nil
 }
 
@@ -108,6 +113,13 @@ func (s *MediaService) SetStorageURL(ctx context.Context, id bson.ObjectID, url 
 	return nil
 }
 
+func (s *MediaService) SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error {
+	if err := s.media.SetThumbnailURL(ctx, id, url); err != nil {
+		return fmt.Errorf("can not set media thumbnail url: %w", err)
+	}
+	return nil
+}
+
 func (s *MediaService) ownedMedia(ctx context.Context, telegramID int64, fid int64) (*domain.User, *domain.MediaFile, error) {
 	user, err := s.users.GetByTelegramID(ctx, telegramID)
 	if err != nil {
@@ -141,6 +153,6 @@ func userOwnsMedia(user *domain.User, mediaID bson.ObjectID) bool {
 	return false
 }
 
-func NewMediaService(media domain.IMediaRepository, users IUserService) IMediaService {
-	return &MediaService{media: media, users: users}
+func NewMediaService(media domain.IMediaRepository, users IUserService, ingest IIngestDispatcher) IMediaService {
+	return &MediaService{media: media, users: users, ingest: ingest}
 }

@@ -35,6 +35,14 @@ type NatsConfigType struct {
 	MaxDeliver int           `env:"MAX_DELIVER" envDefault:"5"`
 }
 
+type MinioConfigType struct {
+	Endpoint        string `env:"ENDPOINT" envDefault:"127.0.0.1:9000"`
+	AccessKeyID     string `env:"ACCESS_KEY" envDefault:"minioadmin"`
+	SecretAccessKey string `env:"SECRET_KEY" envDefault:"minioadmin"`
+	Bucket          string `env:"BUCKET" envDefault:"glide"`
+	UseSSL          bool   `env:"USE_SSL" envDefault:"false"`
+}
+
 type BotConfigType struct {
 	Token             string `env:"TOKEN,required"`
 	ChannelID         int64  `env:"CHANNEL_ID,required"`
@@ -63,4 +71,5 @@ type ConfigType struct {
 	TelegramConfig TelegramConfigType `envPrefix:"TELEGRAM_"`
 	WorkerConfig   WorkerConfigType   `envPrefix:"WORKER_"`
 	NatsConfig     NatsConfigType     `envPrefix:"NATS_"`
+	MinioConfig    MinioConfigType    `envPrefix:"MINIO_"`
 }

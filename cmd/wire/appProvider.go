@@ -7,6 +7,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/api/handler"
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/pipeline"
 	"github.com/amirdaaee/Glide/internals/repository/mongo"
 	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/chenmingyong0423/go-mongox/v2"
@@ -48,10 +49,14 @@ func ProvideUserService(users domain.IUserRepository) service.IUserService {
 	return service.NewUserService(users)
 }
 
-func ProvideMediaService(media domain.IMediaRepository, users service.IUserService) service.IMediaService {
-	return service.NewMediaService(media, users)
+func ProvideMediaService(media domain.IMediaRepository, users service.IUserService, ingest service.IIngestDispatcher) service.IMediaService {
+	return service.NewMediaService(media, users, ingest)
 }
 
 func ProvideJobService(jobs domain.IJobRepository) service.IJobService {
 	return service.NewJobService(jobs)
+}
+
+func ProvideIngestDispatcher(jobs service.IJobService, pub pipeline.IPublisher, cfg *config.ConfigType) service.IIngestDispatcher {
+	return service.NewIngestDispatcher(jobs, pub, cfg.BotConfig.ChannelID, cfg.BotConfig.ChannelAccessHash)
 }

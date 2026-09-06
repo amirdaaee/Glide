@@ -24,6 +24,9 @@ var _ domain.IJobRepository = (*JobRepository)(nil)
 
 func (r *JobRepository) Create(ctx context.Context, job *domain.MediaJob) error {
 	if _, err := r.coll.Creator().InsertOne(ctx, job); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return domain.ErrAlreadyExists
+		}
 		return fmt.Errorf("can not create media job: %w", err)
 	}
 	return nil

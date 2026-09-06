@@ -5,10 +5,33 @@ import (
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/config"
+	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/repository/minio"
+	"github.com/amirdaaee/Glide/internals/service"
+	"github.com/amirdaaee/Glide/internals/worker"
+	"github.com/amirdaaee/Glide/internals/workers/ingest"
 	"github.com/chenmingyong0423/go-mongox/v2"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
+
+func ProvideMediaObjectRepository(cfg *config.ConfigType) (domain.IMediaObjectRepository, error) {
+	return minio.NewMediaRepository(minio.Options{
+		Endpoint:        cfg.MinioConfig.Endpoint,
+		AccessKeyID:     cfg.MinioConfig.AccessKeyID,
+		SecretAccessKey: cfg.MinioConfig.SecretAccessKey,
+		Bucket:          cfg.MinioConfig.Bucket,
+		UseSSL:          cfg.MinioConfig.UseSSL,
+	})
+}
+
+func ProvideIngestWorker(
+	wPool worker.IWorkerPool,
+	objects domain.IMediaObjectRepository,
+	media service.IMediaService,
+) (*ingest.Worker, error) {
+	return ingest.New(wPool, objects, media)
+}
 
 func ProvideMongoDB(cfg *config.ConfigType) (*mongox.Database, error) {
 	mCl, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoConfig.URI))
