@@ -28,11 +28,11 @@ var _ pipeline.IPublisher = (*Client)(nil)
 var _ pipeline.ISubscriber = (*Client)(nil)
 
 func (c *Client) PublishWork(ctx context.Context, subject string, msg pipeline.WorkMsg) error {
-	return c.publish(ctx, subject, msg.TaskID, msg)
+	return c.publish(ctx, subject, jetStreamMsgID(subject, msg.TaskID), msg)
 }
 
 func (c *Client) PublishResult(ctx context.Context, subject string, msg pipeline.ResultMsg) error {
-	return c.publish(ctx, subject, msg.TaskID, msg)
+	return c.publish(ctx, subject, jetStreamMsgID(subject, msg.TaskID), msg)
 }
 
 func (c *Client) publish(ctx context.Context, subject, msgID string, payload any) error {
@@ -50,9 +50,16 @@ func (c *Client) publish(ctx context.Context, subject, msgID string, payload any
 	if msgID != "" {
 		m.Header.Set(natsio.MsgIdHdr, msgID)
 	}
-	if _, err := c.js.PublishMsg(m, natsio.Context(ctx)); err != nil {
+	ack, err := c.js.PublishMsg(m, natsio.Context(ctx))
+	if err != nil {
 		ll.Error("can not publish", zap.Error(err), zap.Int("bytes", len(data)))
 		return fmt.Errorf("can not publish to %s: %w", subject, err)
+	}
+	if ack != nil && ack.Duplicate {
+		// Dedup is stream-wide. A reused Nats-Msg-Id is acknowledged but not stored,
+		// so no consumer (e.g. the orchestrator) will ever see the message.
+		ll.Warn("jetstream dropped duplicate message", zap.Uint64("seq", ack.Sequence), zap.Int("bytes", len(data)))
+		return nil
 	}
 	ll.Debug("published", zap.Int("bytes", len(data)))
 	return nil
@@ -138,6 +145,15 @@ func durableName(group, subject string) string {
 	s = strings.ReplaceAll(s, ".", "-")
 	s = strings.ReplaceAll(s, ">", "all")
 	return s
+}
+
+// jetStreamMsgID scopes Nats-Msg-Id by subject. JetStream dedup is stream-wide,
+// so work and result for the same task must not share an id.
+func jetStreamMsgID(subject, taskID string) string {
+	if taskID == "" {
+		return ""
+	}
+	return subject + ":" + taskID
 }
 
 func ensureStream(js natsio.JetStreamContext, name string) error {
