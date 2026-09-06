@@ -31,7 +31,7 @@ var _ IOrchestrator = (*Orchestrator)(nil)
 func (o *Orchestrator) Start(ctx context.Context) error {
 	ll := o.ll.Named("Start")
 	ll.Info("starting orchestrator")
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 	subs := []string{
 		pipeline.SubjectResultIngest,
 		pipeline.SubjectResultDownload,
@@ -39,11 +39,23 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	for _, subject := range subs {
 		subject := subject
 		g.Go(func() error {
-			ll.Info("subscribing to results", zap.String("subject", subject))
-			return o.sub.SubscribeResult(ctx, subject, "orchestrator", o.handleResult)
+			ll.Info("subscribing to results", zap.String("subject", subject), zap.String("group", "orchestrator"))
+			err := o.sub.SubscribeResult(gctx, subject, "orchestrator", o.handleResult)
+			if err != nil && ctx.Err() == nil && gctx.Err() == nil {
+				ll.Error("result subscription ended", zap.String("subject", subject), zap.Error(err))
+			} else {
+				ll.Info("result subscription stopped", zap.String("subject", subject))
+			}
+			return err
 		})
 	}
-	return g.Wait()
+	err := g.Wait()
+	if err != nil && ctx.Err() == nil {
+		ll.Error("orchestrator stopped with error", zap.Error(err))
+		return err
+	}
+	ll.Info("orchestrator stopped")
+	return err
 }
 
 func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg) error {
@@ -52,56 +64,88 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 		zap.String("media_id", msg.MediaID),
 		zap.String("step", msg.Step),
 		zap.Bool("ok", msg.OK),
+		zap.Int("attempt", msg.Attempt),
 	)
 	ll.Info("received result")
 	mediaID, err := bson.ObjectIDFromHex(msg.MediaID)
 	if err != nil {
+		ll.Error("invalid media id", zap.Error(err))
 		return fmt.Errorf("invalid media id: %w", err)
 	}
 	done, err := o.jobs.IsTaskDone(ctx, mediaID, msg.TaskID)
 	if err != nil {
+		ll.Error("can not check processed task", zap.Error(err))
 		return err
 	}
 	if done {
+		ll.Info("task already processed, skipping")
 		return nil
 	}
 	step := domain.JobStep(msg.Step)
 	if !msg.OK {
 		errMsg := "step failed"
-		if msg.Error != nil && msg.Error.Message != "" {
-			errMsg = msg.Error.Message
+		permanent := false
+		if msg.Error != nil {
+			if msg.Error.Message != "" {
+				errMsg = msg.Error.Message
+			}
+			permanent = msg.Error.Permanent
 		}
+		ll.Warn("step failed", zap.String("error", errMsg), zap.Bool("permanent", permanent))
 		if err := o.jobs.RecordFailure(ctx, mediaID, step, errMsg); err != nil {
+			ll.Error("can not record job failure", zap.Error(err))
 			return err
 		}
 		if err := o.media.SetStatus(ctx, mediaID, domain.MediaStatusFailed); err != nil {
+			ll.Error("can not set media status to failed", zap.Error(err))
 			return err
 		}
-		ll.Warn("step failed", zap.String("error", errMsg))
+		ll.Info("media marked failed")
 		return nil
 	}
 	job, err := o.jobs.GetByMediaID(ctx, mediaID)
 	if err != nil {
+		ll.Error("can not get media job", zap.Error(err))
 		return err
 	}
 	if err := o.jobs.MarkTaskDone(ctx, mediaID, msg.TaskID, step); err != nil {
+		ll.Error("can not mark task done", zap.Error(err))
 		return err
 	}
+	ll.Debug("task marked done", zap.String("job_step", string(job.Step)), zap.Int("status_ver", job.StatusVer))
 	next, ok := service.NextJobStep(step)
 	if !ok {
+		ll.Warn("no next step defined")
 		return nil
 	}
-	if _, err := o.jobs.Transition(ctx, mediaID, step, next, job.StatusVer); err != nil {
+	ll.Info("transitioning job", zap.String("from", string(step)), zap.String("to", string(next)))
+	transitioned, err := o.jobs.Transition(ctx, mediaID, step, next, job.StatusVer)
+	if err != nil {
+		ll.Error("can not transition job", zap.Error(err), zap.String("from", string(step)), zap.String("to", string(next)))
 		return err
 	}
+	if !transitioned {
+		ll.Warn("job transition did not apply (stale version or concurrent update)", zap.Int("status_ver", job.StatusVer))
+	}
+	if next == domain.JobStepDone {
+		ll.Info("pipeline complete")
+		return nil
+	}
 	if next != domain.JobStepDownload {
+		ll.Info("no further work to publish", zap.String("next", string(next)))
 		return nil
 	}
 	media, err := o.media.Get(ctx, mediaID)
 	if err != nil {
+		ll.Error("can not get media for download work", zap.Error(err))
 		return err
 	}
-	return service.PublishDownloadWork(ctx, o.pub, media, o.channelID)
+	if err := service.PublishDownloadWork(ctx, o.pub, media, o.channelID); err != nil {
+		ll.Error("can not publish download work", zap.Error(err))
+		return err
+	}
+	ll.Info("published download work", zap.Int("message_id", media.MessageID), zap.Int64("file_id", media.Meta.FileID))
+	return nil
 }
 
 func New(
@@ -123,12 +167,14 @@ func New(
 	if jobs == nil {
 		return nil, fmt.Errorf("job service is nil")
 	}
+	ll := log.GetLogger(log.ORCHESTRATOR)
+	ll.Info("orchestrator created", zap.Int64("channel_id", channelID))
 	return &Orchestrator{
 		sub:       sub,
 		pub:       pub,
 		media:     media,
 		jobs:      jobs,
 		channelID: channelID,
-		ll:        log.GetLogger(log.ORCHESTRATOR),
+		ll:        ll,
 	}, nil
 }

@@ -31,6 +31,7 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 	ll := w.ll.Named("Handle").With(
 		zap.String("task_id", msg.TaskID),
 		zap.String("media_id", msg.MediaID),
+		zap.Int("attempt", msg.Attempt),
 	)
 	res := &pipeline.ResultMsg{
 		TaskID:  msg.TaskID,
@@ -40,41 +41,57 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 	}
 	var payload pipeline.IngestPayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		ll.Warn("invalid ingest payload", zap.Error(err))
 		res.Error = &pipeline.StepError{Message: "invalid ingest payload", Permanent: true}
 		return res, nil
 	}
+	ll.Info("ingesting media",
+		zap.Int64("channel_id", payload.ChannelID),
+		zap.Int("message_id", payload.MessageID),
+		zap.Int64("file_id", payload.FileID),
+	)
 	mediaID, err := bson.ObjectIDFromHex(msg.MediaID)
 	if err != nil {
+		ll.Warn("invalid media id", zap.Error(err))
 		res.Error = &pipeline.StepError{Message: "invalid media id", Permanent: true}
 		return res, nil
 	}
 	wrkr := w.wPool.GetNextWorker()
 	if wrkr == nil {
+		ll.Error("no available telegram worker")
 		return nil, fmt.Errorf("no available telegram worker")
 	}
+	ll.Debug("fetching channel document", zap.Int("message_id", payload.MessageID))
 	doc, err := wrkr.GetDoc(ctx, payload.MessageID)
 	if err != nil {
+		ll.Error("can not get channel document", zap.Error(err), zap.Int("message_id", payload.MessageID))
 		return nil, fmt.Errorf("can not get channel document: %w", err)
 	}
+	ll.Debug("downloading thumbnail", zap.Int64("doc_id", doc.ID), zap.Int64("size", doc.Size))
 	thumb, contentType, err := downloadThumbnail(ctx, wrkr.API(), doc)
 	if err != nil {
+		ll.Warn("can not download thumbnail", zap.Error(err), zap.Int64("doc_id", doc.ID))
 		res.Error = &pipeline.StepError{Message: err.Error(), Permanent: true}
 		return res, nil
 	}
+	ll.Debug("storing thumbnail", zap.Int("bytes", len(thumb)), zap.String("content_type", contentType))
 	url, err := w.objects.PutThumbnail(ctx, mediaID, bytes.NewReader(thumb), int64(len(thumb)), contentType)
 	if err != nil {
+		ll.Error("can not store thumbnail", zap.Error(err))
 		return nil, fmt.Errorf("can not store thumbnail: %w", err)
 	}
 	if err := w.media.SetThumbnailURL(ctx, mediaID, url); err != nil {
+		ll.Error("can not set thumbnail url", zap.Error(err), zap.String("url", url))
 		return nil, fmt.Errorf("can not set thumbnail url: %w", err)
 	}
 	out, err := json.Marshal(pipeline.IngestOutput{ThumbnailURL: url})
 	if err != nil {
+		ll.Error("can not marshal ingest output", zap.Error(err))
 		return nil, fmt.Errorf("can not marshal ingest output: %w", err)
 	}
 	res.OK = true
 	res.Output = out
-	ll.Info("thumbnail stored", zap.String("url", url))
+	ll.Info("thumbnail stored", zap.String("url", url), zap.Int("bytes", len(thumb)))
 	return res, nil
 }
 
@@ -151,10 +168,12 @@ func New(wPool worker.IWorkerPool, objects domain.IMediaObjectRepository, media 
 	if media == nil {
 		return nil, fmt.Errorf("media service is nil")
 	}
+	ll := log.GetLogger(log.WORKERS).Named("ingest")
+	ll.Info("ingest worker created")
 	return &Worker{
 		wPool:   wPool,
 		objects: objects,
 		media:   media,
-		ll:      log.GetLogger(log.WORKERS).Named("ingest"),
+		ll:      ll,
 	}, nil
 }

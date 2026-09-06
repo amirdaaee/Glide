@@ -17,26 +17,35 @@ type Bot struct {
 	ll *zap.Logger
 }
 
-// Start starts worker clients, then runs the bot client until ctx is cancelled.
+// Start runs the bot client until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	ll := b.ll.Named("Start")
-	ll.Info("starting workers")
 	ll.Info("starting bot client")
-	return b.cl.RunBot(ctx)
+	err := b.cl.RunBot(ctx)
+	if err != nil && ctx.Err() == nil {
+		ll.Error("bot stopped with error", zap.Error(err))
+		return err
+	}
+	ll.Info("bot stopped")
+	return err
 }
 
 // NewBot creates a Bot, registers handlers on an update dispatcher, and attaches it to the client.
 func NewBot(cl tlg.IClient, handlers []bothandler.IHandler) (*Bot, error) {
+	ll := log.GetLogger(log.BOT)
 	if cl == nil {
+		ll.Error("telegram client is nil")
 		return nil, fmt.Errorf("telegram client is nil")
 	}
+	ll.Info("registering handlers", zap.Int("count", len(handlers)))
 	dispatcher := tg.NewUpdateDispatcher()
 	for _, h := range handlers {
 		h.Register(&dispatcher)
 	}
 	cl.SetUpdateHandler(dispatcher)
+	ll.Info("bot created")
 	return &Bot{
 		cl: cl,
-		ll: log.GetLogger(log.BOT),
+		ll: ll,
 	}, nil
 }

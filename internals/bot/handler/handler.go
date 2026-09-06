@@ -26,8 +26,17 @@ func HandlerWithErrorMessage(fn messageHandlerFunc, name string) messageHandlerF
 	return func(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error {
 		err := fn(ctx, api, entities, msg)
 		if err != nil {
+			fields := []zap.Field{zap.Error(err)}
+			if msg != nil {
+				fields = append(fields, zap.Int("msg_id", msg.ID))
+			}
+			ll.Warn("handler failed", fields...)
 			if sendErr := replyText(ctx, api, entities, msg, err.Error()); sendErr != nil {
-				ll.With(zap.Error(sendErr)).Error("error writing err message")
+				fields := []zap.Field{zap.Error(sendErr)}
+				if msg != nil {
+					fields = append(fields, zap.Int("msg_id", msg.ID))
+				}
+				ll.Error("can not send error reply", fields...)
 			}
 			return err
 		}
@@ -96,7 +105,7 @@ func randomID() int64 {
 // forward forwards a message from the user chat to the storage channel and returns the new channel message.
 func forward(ctx context.Context, api *tg.Client, fromPeer tg.InputPeerClass, toPeer tg.InputPeerClass, msgID int) (*tg.Message, error) {
 	ll := log.Named(log.BOT, "forward")
-	ll.With(zap.Int("msgID", msgID)).Debug("forwarding message")
+	ll.Info("forwarding message", zap.Int("msg_id", msgID))
 	newUCls, err := api.MessagesForwardMessages(ctx, &tg.MessagesForwardMessagesRequest{
 		FromPeer: fromPeer,
 		ToPeer:   toPeer,
@@ -104,11 +113,13 @@ func forward(ctx context.Context, api *tg.Client, fromPeer tg.InputPeerClass, to
 		RandomID: []int64{randomID()},
 	})
 	if err != nil {
+		ll.Error("can not forward message", zap.Error(err), zap.Int("msg_id", msgID))
 		return nil, fmt.Errorf("can not forward message: %w", err)
 	}
-	ll.Debug("message forwarded")
+	ll.Debug("forward api call succeeded", zap.Int("msg_id", msgID))
 	upd, ok := newUCls.(*tg.Updates)
 	if !ok {
+		ll.Error("unexpected forward result type", zap.String("type", fmt.Sprintf("%T", newUCls)))
 		return nil, fmt.Errorf("upd is not a *tg.Updates: %T", newUCls)
 	}
 	var newMsg *tg.Message
@@ -125,8 +136,9 @@ func forward(ctx context.Context, api *tg.Client, fromPeer tg.InputPeerClass, to
 		break
 	}
 	if newMsg == nil {
+		ll.Error("no forwarded message in update", zap.Int("msg_id", msgID))
 		return nil, fmt.Errorf("no message in update found")
 	}
-	ll.With(zap.Int("msgID", newMsg.ID)).Debug("got forwarded message")
+	ll.Info("forwarded message", zap.Int("src_msg_id", msgID), zap.Int("channel_msg_id", newMsg.ID))
 	return newMsg, nil
 }

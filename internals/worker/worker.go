@@ -33,26 +33,36 @@ func (w *Worker) API() *tg.Client {
 }
 
 func (w *Worker) Start(ctx context.Context) error {
+	ll := w.ll.Named("Start")
+	ll.Info("starting telegram worker")
 	if err := w.cl.StartClient(ctx); err != nil {
+		ll.Error("can not start telegram client", zap.Error(err))
 		return err
 	}
 	api := w.cl.API()
 	if api == nil {
+		ll.Error("worker client is not ready")
 		return fmt.Errorf("worker client is not ready")
 	}
 	if err := w.channel.Resolve(ctx, api); err != nil {
+		ll.Error("can not resolve storage channel", zap.Error(err))
 		return fmt.Errorf("can not resolve storage channel: %w", err)
 	}
+	ll.Info("telegram worker ready")
 	return nil
 }
 
 func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
+	ll := w.ll.Named("GetDoc").With(zap.Int("msg_id", msgID))
+	ll.Debug("fetching channel document")
 	api := w.cl.API()
 	if api == nil {
+		ll.Error("worker client is not ready")
 		return nil, fmt.Errorf("worker client is not ready")
 	}
 	channel, err := w.channel.Input(ctx, api)
 	if err != nil {
+		ll.Error("can not resolve channel", zap.Error(err))
 		return nil, fmt.Errorf("can not resolve channel: %w", err)
 	}
 	res, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
@@ -62,10 +72,12 @@ func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 		},
 	})
 	if err != nil {
+		ll.Error("can not get channel messages", zap.Error(err))
 		return nil, fmt.Errorf("can not get channel messages: %w", err)
 	}
 	messages, err := messagesFromResult(res)
 	if err != nil {
+		ll.Error("unexpected messages response", zap.Error(err))
 		return nil, err
 	}
 	for _, m := range messages {
@@ -75,10 +87,13 @@ func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 		}
 		doc, err := documentFromMessage(msg)
 		if err != nil {
+			ll.Error("message has no document", zap.Error(err))
 			return nil, err
 		}
+		ll.Debug("got document", zap.Int64("doc_id", doc.ID), zap.Int64("size", doc.Size), zap.String("mime", doc.MimeType))
 		return doc, nil
 	}
+	ll.Warn("message not found in channel")
 	return nil, fmt.Errorf("message %d not found in channel", msgID)
 }
 

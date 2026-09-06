@@ -27,19 +27,23 @@ func (p *Pool) GetNextWorker() IWorker {
 
 func (p *Pool) Start(ctx context.Context) error {
 	ll := p.ll.Named("Start")
-	ll.Sugar().Infof("starting %d workers", len(p.workers))
+	ll.Info("starting worker pool", zap.Int("size", len(p.workers)))
 	for i, w := range p.workers {
 		if err := w.Start(ctx); err != nil {
+			ll.Error("can not start worker", zap.Int("index", i), zap.Error(err))
 			return fmt.Errorf("can not start worker %d: %w", i, err)
 		}
-		ll.Sugar().Infof("worker %d ready", i)
+		ll.Info("worker ready", zap.Int("index", i))
 	}
+	ll.Info("worker pool ready")
 	return nil
 }
 
 func NewPool(workers []*Worker) *Pool {
+	ll := log.GetLogger(log.TELEGRAM).Named("workerPool")
+	ll.Info("worker pool created", zap.Int("size", len(workers)))
 	return &Pool{
 		workers: workers,
-		ll:      log.GetLogger(log.TELEGRAM).Named("workerPool"),
+		ll:      ll,
 	}
 }

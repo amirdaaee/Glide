@@ -36,8 +36,10 @@ func (c *Client) PublishResult(ctx context.Context, subject string, msg pipeline
 }
 
 func (c *Client) publish(ctx context.Context, subject, msgID string, payload any) error {
+	ll := c.ll.Named("publish").With(zap.String("subject", subject), zap.String("msg_id", msgID))
 	data, err := json.Marshal(payload)
 	if err != nil {
+		ll.Error("can not marshal nats payload", zap.Error(err))
 		return fmt.Errorf("can not marshal nats payload: %w", err)
 	}
 	m := &natsio.Msg{
@@ -49,8 +51,10 @@ func (c *Client) publish(ctx context.Context, subject, msgID string, payload any
 		m.Header.Set(natsio.MsgIdHdr, msgID)
 	}
 	if _, err := c.js.PublishMsg(m, natsio.Context(ctx)); err != nil {
+		ll.Error("can not publish", zap.Error(err), zap.Int("bytes", len(data)))
 		return fmt.Errorf("can not publish to %s: %w", subject, err)
 	}
+	ll.Debug("published", zap.Int("bytes", len(data)))
 	return nil
 }
 
@@ -58,6 +62,11 @@ func (c *Client) SubscribeWork(ctx context.Context, subject, group string, h pip
 	return c.subscribe(ctx, subject, group, func(ctx context.Context, data []byte) error {
 		var msg pipeline.WorkMsg
 		if err := json.Unmarshal(data, &msg); err != nil {
+			c.ll.Named("SubscribeWork").Error("can not unmarshal work message",
+				zap.Error(err),
+				zap.String("subject", subject),
+				zap.Int("bytes", len(data)),
+			)
 			return err
 		}
 		return h(ctx, msg)
@@ -68,6 +77,11 @@ func (c *Client) SubscribeResult(ctx context.Context, subject, group string, h p
 	return c.subscribe(ctx, subject, group, func(ctx context.Context, data []byte) error {
 		var msg pipeline.ResultMsg
 		if err := json.Unmarshal(data, &msg); err != nil {
+			c.ll.Named("SubscribeResult").Error("can not unmarshal result message",
+				zap.Error(err),
+				zap.String("subject", subject),
+				zap.Int("bytes", len(data)),
+			)
 			return err
 		}
 		return h(ctx, msg)
@@ -75,31 +89,46 @@ func (c *Client) SubscribeResult(ctx context.Context, subject, group string, h p
 }
 
 func (c *Client) subscribe(ctx context.Context, subject, group string, handle func(context.Context, []byte) error) error {
+	ll := c.ll.Named("subscribe").With(
+		zap.String("subject", subject),
+		zap.String("group", group),
+	)
 	durable := durableName(group, subject)
+	ll.Info("subscribing", zap.String("durable", durable), zap.String("stream", c.stream))
 	sub, err := c.js.QueueSubscribe(subject, group, func(m *natsio.Msg) {
+		ll := ll.With(zap.Int("bytes", len(m.Data)))
 		if err := handle(ctx, m.Data); err != nil {
-			c.ll.With(zap.Error(err), zap.String("subject", subject)).Warn("handler failed")
+			ll.Warn("handler failed", zap.Error(err))
 			if nakErr := m.NakWithDelay(time.Second); nakErr != nil {
-				c.ll.With(zap.Error(nakErr)).Error("can not nak message")
+				ll.Error("can not nak message", zap.Error(nakErr))
+			} else {
+				ll.Debug("nacked message")
 			}
 			return
 		}
 		if ackErr := m.Ack(); ackErr != nil {
-			c.ll.With(zap.Error(ackErr)).Error("can not ack message")
+			ll.Error("can not ack message", zap.Error(ackErr))
+			return
 		}
+		ll.Debug("acked message")
 	}, natsio.ManualAck(), natsio.AckWait(c.ackWait), natsio.MaxDeliver(c.maxDeliver), natsio.Durable(durable), natsio.BindStream(c.stream), natsio.Context(ctx))
 	if err != nil {
+		ll.Error("can not subscribe", zap.Error(err))
 		return fmt.Errorf("can not subscribe to %s: %w", subject, err)
 	}
 	<-ctx.Done()
+	ll.Info("draining subscription")
 	if err := sub.Drain(); err != nil {
+		ll.Error("can not drain subscription", zap.Error(err))
 		return fmt.Errorf("can not drain subscription %s: %w", subject, err)
 	}
+	ll.Info("subscription stopped")
 	return nil
 }
 
 func (c *Client) Close() {
 	if c.nc != nil {
+		c.ll.Info("closing nats connection")
 		c.nc.Close()
 	}
 }
@@ -131,29 +160,35 @@ func ensureStream(js natsio.JetStreamContext, name string) error {
 }
 
 func NewClient(cfg *config.NatsConfigType) (*Client, error) {
+	ll := log.GetLogger(log.PIPELINE).Named("nats")
 	stream := cfg.Stream
 	if stream == "" {
 		stream = pipeline.StreamName
 	}
+	ll.Info("connecting", zap.String("stream", stream))
 	nc, err := natsio.Connect(cfg.URL)
 	if err != nil {
+		ll.Error("can not connect to nats", zap.Error(err))
 		return nil, fmt.Errorf("can not connect to nats: %w", err)
 	}
 	js, err := nc.JetStream()
 	if err != nil {
 		nc.Close()
+		ll.Error("can not create jetstream context", zap.Error(err))
 		return nil, fmt.Errorf("can not create jetstream context: %w", err)
 	}
 	if err := ensureStream(js, stream); err != nil {
 		nc.Close()
+		ll.Error("can not ensure stream", zap.Error(err), zap.String("stream", stream))
 		return nil, err
 	}
+	ll.Info("connected", zap.String("stream", stream), zap.Duration("ack_wait", cfg.AckWait), zap.Int("max_deliver", cfg.MaxDeliver))
 	return &Client{
 		nc:         nc,
 		js:         js,
 		stream:     stream,
 		ackWait:    cfg.AckWait,
 		maxDeliver: cfg.MaxDeliver,
-		ll:         log.GetLogger(log.PIPELINE).Named("nats"),
+		ll:         ll,
 	}, nil
 }
