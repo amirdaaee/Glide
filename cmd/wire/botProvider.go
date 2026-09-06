@@ -7,8 +7,9 @@ import (
 	"github.com/amirdaaee/Glide/internals/bot"
 	bothandler "github.com/amirdaaee/Glide/internals/bot/handler"
 	"github.com/amirdaaee/Glide/internals/config"
-	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository/mongo"
+	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/tlg"
 	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/chenmingyong0423/go-mongox/v2"
@@ -23,11 +24,11 @@ func ProvideSessionConfig(cfg *config.ConfigType) *tlg.SessionConfig {
 	}
 }
 
-func ProvideMediaRepository(cfg *config.ConfigType, db *mongox.Database) repository.IMediaRepository {
+func ProvideMediaRepository(cfg *config.ConfigType, db *mongox.Database) domain.IMediaRepository {
 	return mongo.NewMediaRepository(db, cfg.MongoConfig.MediaCollection)
 }
 
-func ProvideJobRepository(cfg *config.ConfigType, db *mongox.Database) (repository.IJobRepository, error) {
+func ProvideJobRepository(cfg *config.ConfigType, db *mongox.Database) (domain.IJobRepository, error) {
 	return mongo.NewJobRepository(db, cfg.MongoConfig.JobsCollection, cfg.MongoConfig.ProcessedTasksCollection)
 }
 
@@ -60,16 +61,14 @@ func ProvideBotHandlers(
 	cl tlg.IClient,
 	cfg *config.ConfigType,
 	wPool worker.IWorkerPool,
-	mediaRepo repository.IMediaRepository,
-	userRepo repository.IUserRepository,
+	media service.IMediaService,
 ) ([]bothandler.IHandler, error) {
 	h, err := bothandler.NewMediaHandler(
 		cl,
 		cfg.BotConfig.ChannelID,
 		cfg.BotConfig.ChannelAccessHash,
 		wPool,
-		mediaRepo,
-		userRepo,
+		media,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create media handler: %w", err)

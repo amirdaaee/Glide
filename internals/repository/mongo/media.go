@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/domain"
-	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/chenmingyong0423/go-mongox/v2"
 	"github.com/chenmingyong0423/go-mongox/v2/builder/query"
 	"github.com/chenmingyong0423/go-mongox/v2/builder/update"
@@ -18,7 +17,7 @@ type MediaRepository struct {
 	coll *mongox.Collection[domain.MediaFile]
 }
 
-var _ repository.IMediaRepository = (*MediaRepository)(nil)
+var _ domain.IMediaRepository = (*MediaRepository)(nil)
 
 func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) error {
 	if _, err := r.coll.Creator().InsertOne(ctx, media); err != nil {
@@ -32,7 +31,7 @@ func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.Medi
 	media, err := r.coll.Finder().Filter(query.Eq("Meta.FileID", fid)).FindOne(ctx)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, repository.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("can not get media file by fid: %w", err)
 	}
@@ -64,7 +63,7 @@ func (r *MediaRepository) SetStatus(ctx context.Context, id bson.ObjectID, statu
 		return fmt.Errorf("can not set media status: %w", err)
 	}
 	if res.MatchedCount == 0 {
-		return repository.NotFoundError
+		return domain.ErrNotFound
 	}
 	return nil
 }
@@ -76,12 +75,12 @@ func (r *MediaRepository) SetStorageURL(ctx context.Context, id bson.ObjectID, u
 		return fmt.Errorf("can not set media storage url: %w", err)
 	}
 	if res.MatchedCount == 0 {
-		return repository.NotFoundError
+		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func NewMediaRepository(db *mongox.Database, name string) repository.IMediaRepository {
+func NewMediaRepository(db *mongox.Database, name string) domain.IMediaRepository {
 	coll := mongox.NewCollection[domain.MediaFile](db, name)
 	return &MediaRepository{coll: coll}
 }

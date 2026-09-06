@@ -9,9 +9,8 @@ import (
 	"github.com/amirdaaee/Glide/internals/api/middleware"
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/amirdaaee/Glide/internals/domain"
-	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type MediaUriParam struct {
@@ -19,9 +18,8 @@ type MediaUriParam struct {
 }
 
 type MediaHandler struct {
-	mediaRepo repository.IMediaRepository
-	userRepo  repository.IUserRepository
-	auth      *middleware.TgAuthenticationMiddleware
+	media service.IMediaService
+	auth  *middleware.TgAuthenticationMiddleware
 }
 
 var _ IApiHandler = (*MediaHandler)(nil)
@@ -37,12 +35,16 @@ func (h *MediaHandler) RegisterRoutes(router *gin.Engine) {
 }
 
 func (h *MediaHandler) List(c *gin.Context) {
-	user := h.getUser(c)
-	if user == nil {
+	telegramID, ok := h.telegramID(c)
+	if !ok {
 		return
 	}
-	media, err := h.userRepo.ListMedia(c.Request.Context(), user.ID)
+	media, err := h.media.ListIDsForTelegramUser(c.Request.Context(), telegramID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.Error(apiErr.ErrUnauthorized)
+			return
+		}
 		c.Error(fmt.Errorf("failed to list media: %w", err))
 		return
 	}
@@ -50,86 +52,60 @@ func (h *MediaHandler) List(c *gin.Context) {
 }
 
 func (h *MediaHandler) Get(c *gin.Context) {
-	user := h.getUser(c)
-	if user == nil {
+	telegramID, ok := h.telegramID(c)
+	if !ok {
 		return
 	}
-	media, ok := h.loadOwnedMedia(c, user)
-	if !ok {
+	var req MediaUriParam
+	if err := c.ShouldBindUri(&req); err != nil {
+		c.Error(apiErr.NewBadrequestError(err))
+		return
+	}
+	media, err := h.media.GetOwnedByFID(c.Request.Context(), telegramID, req.FID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.Error(apiErr.ErrNotFound)
+			return
+		}
+		c.Error(fmt.Errorf("failed to get media: %w", err))
 		return
 	}
 	c.JSON(http.StatusOK, media)
 }
 
 func (h *MediaHandler) Delete(c *gin.Context) {
-	user := h.getUser(c)
-	if user == nil {
-		return
-	}
-	media, ok := h.loadOwnedMedia(c, user)
+	telegramID, ok := h.telegramID(c)
 	if !ok {
 		return
 	}
-	if err := h.userRepo.DeleteMedia(c.Request.Context(), user.ID, media.ID); err != nil {
+	var req MediaUriParam
+	if err := c.ShouldBindUri(&req); err != nil {
+		c.Error(apiErr.NewBadrequestError(err))
+		return
+	}
+	if err := h.media.UnlinkOwnedByFID(c.Request.Context(), telegramID, req.FID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.Error(apiErr.ErrNotFound)
+			return
+		}
 		c.Error(fmt.Errorf("failed to delete media: %w", err))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Media deleted successfully"})
 }
 
-func (h *MediaHandler) loadOwnedMedia(c *gin.Context, user *domain.User) (*domain.MediaFile, bool) {
-	var req MediaUriParam
-	if err := c.ShouldBindUri(&req); err != nil {
-		c.Error(apiErr.NewBadrequestError(err))
-		return nil, false
-	}
-	media, err := h.mediaRepo.GetByFID(c.Request.Context(), req.FID)
-	if err != nil {
-		if errors.Is(err, repository.NotFoundError) {
-			c.Error(apiErr.ErrNotFound)
-			return nil, false
-		}
-		c.Error(fmt.Errorf("failed to get media: %w", err))
-		return nil, false
-	}
-	if !userOwnsMedia(user, media.ID) {
-		c.Error(apiErr.ErrNotFound)
-		return nil, false
-	}
-	return media, true
-}
-
-func userOwnsMedia(user *domain.User, mediaID bson.ObjectID) bool {
-	for _, id := range user.MediaList {
-		if id == mediaID {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *MediaHandler) getUser(c *gin.Context) *domain.User {
+func (h *MediaHandler) telegramID(c *gin.Context) (int64, bool) {
 	userID := middleware.GetTgIDFromContext(c)
 	if userID == 0 {
 		c.Error(apiErr.ErrUnauthorized)
-		return nil
+		return 0, false
 	}
-	user, err := h.userRepo.GetByTelegramID(c.Request.Context(), userID)
-	if err != nil {
-		if errors.Is(err, repository.NotFoundError) {
-			c.Error(apiErr.ErrUnauthorized)
-			return nil
-		}
-		c.Error(fmt.Errorf("failed to get user by telegram id: %w", err))
-		return nil
-	}
-	return user
+	return userID, true
 }
 
 func NewMediaHandler(
 	authCfg config.AuthConfigType,
-	mediaRepo repository.IMediaRepository,
-	userRepo repository.IUserRepository,
+	media service.IMediaService,
 ) (*MediaHandler, error) {
 	auth, err := middleware.NewJWTAuthenticationMiddleware(&middleware.JWTAuthenticationMiddlewareConfig{
 		ClientID: authCfg.ClientID,
@@ -138,8 +114,7 @@ func NewMediaHandler(
 		return nil, fmt.Errorf("failed to create auth middleware: %w", err)
 	}
 	return &MediaHandler{
-		mediaRepo: mediaRepo,
-		userRepo:  userRepo,
-		auth:      auth,
+		media: media,
+		auth:  auth,
 	}, nil
 }

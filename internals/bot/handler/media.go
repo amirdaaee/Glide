@@ -2,13 +2,12 @@ package bot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/log"
-	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/tlg"
 	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/gotd/td/tg"
@@ -22,8 +21,7 @@ type mediaHandler struct {
 	channelAccessHash int64
 	wPool             worker.IWorkerPool
 	ll                *zap.Logger
-	mediaRepo         repository.IMediaRepository
-	userRepo          repository.IUserRepository
+	media             service.IMediaService
 }
 
 var _ IHandler = (*mediaHandler)(nil)
@@ -74,7 +72,7 @@ func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities
 	if !isAudioMessage(msg) {
 		return fmt.Errorf("not an audio message")
 	}
-	usr, err := h.getUser(ctx, entities, msg)
+	usr, err := userProfileFromUpdate(entities, msg)
 	if err != nil {
 		return fmt.Errorf("can not get user: %w", err)
 	}
@@ -95,22 +93,13 @@ func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities
 	if err != nil {
 		return fmt.Errorf("can not get document from forwarded message: %w", err)
 	}
-	mediaDoc, err := h.mediaRepo.GetByFID(ctx, newDoc.ID)
-	if err != nil && !errors.Is(err, repository.NotFoundError) {
-		return fmt.Errorf("can not get media file by fid: %w", err)
-	} else if err == nil {
-		goto addMediaToUser
-	}
-	mediaDoc, err = h.buildMediaFileDoc(newDoc, fwMsg.ID)
+	mediaFile, err := h.buildMediaFileDoc(newDoc, fwMsg.ID)
 	if err != nil {
 		return fmt.Errorf("can not build media file doc: %w", err)
 	}
-	if err = h.mediaRepo.Create(ctx, mediaDoc); err != nil {
-		return fmt.Errorf("can not create media file: %w", err)
-	}
-addMediaToUser:
-	if err = h.userRepo.AddMedia(ctx, usr.ID, mediaDoc.ID); err != nil {
-		return fmt.Errorf("can not add media to user: %w", err)
+	mediaDoc, err := h.media.EnsureAttached(ctx, usr, mediaFile)
+	if err != nil {
+		return err
 	}
 	ll.With(zap.Any("doc", mediaDoc)).Info("media file doc created")
 	if err := h.sendSuccessMsg(ctx, api, entities, msg, mediaDoc); err != nil {
@@ -146,29 +135,18 @@ func (h *mediaHandler) sendSuccessMsg(ctx context.Context, api *tg.Client, entit
 	return nil
 }
 
-func (h *mediaHandler) getUser(ctx context.Context, entities tg.Entities, msg *tg.Message) (*domain.User, error) {
+func userProfileFromUpdate(entities tg.Entities, msg *tg.Message) (*domain.User, error) {
 	tgUser, err := userFromUpdate(entities, msg)
 	if err != nil {
 		return nil, err
 	}
-	user, err := h.userRepo.GetByTelegramID(ctx, tgUser.ID)
-	if err != nil {
-		if errors.Is(err, repository.NotFoundError) {
-			user = &domain.User{
-				TelegramID:   tgUser.ID,
-				Username:     tgUser.Username,
-				FirstName:    tgUser.FirstName,
-				LastName:     tgUser.LastName,
-				LanguageCode: tgUser.LangCode,
-			}
-			if err = h.userRepo.Create(ctx, user); err != nil {
-				return nil, fmt.Errorf("can not create user: %w", err)
-			}
-			return user, nil
-		}
-		return nil, fmt.Errorf("can not get user: %w", err)
-	}
-	return user, nil
+	return &domain.User{
+		TelegramID:   tgUser.ID,
+		Username:     tgUser.Username,
+		FirstName:    tgUser.FirstName,
+		LastName:     tgUser.LastName,
+		LanguageCode: tgUser.LangCode,
+	}, nil
 }
 
 // NewMediaHandler creates a new handler instance with the given dependencies.
@@ -176,8 +154,7 @@ func NewMediaHandler(
 	cl tlg.IClient,
 	channelID, channelAccessHash int64,
 	wPool worker.IWorkerPool,
-	mediaRepo repository.IMediaRepository,
-	userRepo repository.IUserRepository,
+	media service.IMediaService,
 ) (IHandler, error) {
 	if cl == nil {
 		return nil, fmt.Errorf("telegram client is nil")
@@ -185,19 +162,15 @@ func NewMediaHandler(
 	if wPool == nil {
 		return nil, fmt.Errorf("worker pool is nil")
 	}
-	if mediaRepo == nil {
-		return nil, fmt.Errorf("media repository is nil")
-	}
-	if userRepo == nil {
-		return nil, fmt.Errorf("user repository is nil")
+	if media == nil {
+		return nil, fmt.Errorf("media service is nil")
 	}
 	return &mediaHandler{
 		cl:                cl,
 		channelID:         channelID,
 		channelAccessHash: channelAccessHash,
 		wPool:             wPool,
-		mediaRepo:         mediaRepo,
-		userRepo:          userRepo,
+		media:             media,
 		ll:                log.GetLogger(log.BOT).Named("mediaHandler"),
 	}, nil
 }

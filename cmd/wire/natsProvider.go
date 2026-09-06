@@ -7,7 +7,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/orchestrator"
 	"github.com/amirdaaee/Glide/internals/pipeline"
 	pipelinenats "github.com/amirdaaee/Glide/internals/pipeline/nats"
-	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/service"
 )
 
 func ProvideNatsClient(cfg *config.ConfigType) (*pipelinenats.Client, error) {
@@ -29,8 +29,8 @@ func ProvideSubscriber(cl *pipelinenats.Client) pipeline.ISubscriber {
 func ProvideOrchestrator(
 	sub pipeline.ISubscriber,
 	pub pipeline.IPublisher,
-	mediaRepo repository.IMediaRepository,
-	jobRepo repository.IJobRepository,
+	media service.IMediaService,
+	jobs service.IJobService,
 ) (*orchestrator.Orchestrator, error) {
-	return orchestrator.New(sub, pub, mediaRepo, jobRepo)
+	return orchestrator.New(sub, pub, media, jobs)
 }

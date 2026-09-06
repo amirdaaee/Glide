@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/domain"
-	"github.com/amirdaaee/Glide/internals/repository"
 	"github.com/chenmingyong0423/go-mongox/v2"
 	"github.com/chenmingyong0423/go-mongox/v2/builder/query"
 	"github.com/chenmingyong0423/go-mongox/v2/builder/update"
@@ -18,13 +17,13 @@ type UserRepository struct {
 	coll *mongox.Collection[domain.User]
 }
 
-var _ repository.IUserRepository = (*UserRepository)(nil)
+var _ domain.IUserRepository = (*UserRepository)(nil)
 
 func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error) {
 	user, err := r.coll.Finder().Filter(query.Eq("TelegramID", telegramID)).FindOne(ctx)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, repository.NotFoundError
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("can not get user by telegram id: %w", err)
 	}
@@ -38,19 +37,21 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
-func (r *UserRepository) UpsertByTelegramID(ctx context.Context, user *domain.User) error {
+func (r *UserRepository) Save(ctx context.Context, user *domain.User) error {
 	updateVal := update.NewBuilder().
 		Set("Username", user.Username).
 		Set("FirstName", user.FirstName).
 		Set("LastName", user.LastName).
-		SetOnInsert("TelegramID", user.TelegramID).
-		SetOnInsert("MediaList", bson.A{}).
+		Set("LanguageCode", user.LanguageCode).
+		Set("TelegramID", user.TelegramID).
+		Set("MediaList", user.MediaList).
 		Build()
-	if _, err := r.coll.Updater().
-		Filter(query.Eq("TelegramID", user.TelegramID)).
-		Updates(updateVal).
-		Upsert(ctx); err != nil {
-		return fmt.Errorf("can not upsert user by telegram id: %w", err)
+	res, err := r.coll.Updater().Filter(query.Id(user.ID)).Updates(updateVal).UpdateOne(ctx)
+	if err != nil {
+		return fmt.Errorf("can not save user: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return domain.ErrNotFound
 	}
 	return nil
 }
@@ -65,17 +66,6 @@ func (r *UserRepository) AddMedia(ctx context.Context, userID, mediaID bson.Obje
 	return nil
 }
 
-func (r *UserRepository) ListMedia(ctx context.Context, userID bson.ObjectID) ([]bson.ObjectID, error) {
-	user, err := r.coll.Finder().Filter(query.Id(userID)).FindOne(ctx)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, repository.NotFoundError
-		}
-		return nil, fmt.Errorf("can not list media for user: %w", err)
-	}
-	return user.MediaList, nil
-}
-
 func (r *UserRepository) DeleteMedia(ctx context.Context, userID bson.ObjectID, mediaID bson.ObjectID) error {
 	updateVal := update.NewBuilder().
 		Pull("MediaList", mediaID).
@@ -85,7 +75,7 @@ func (r *UserRepository) DeleteMedia(ctx context.Context, userID bson.ObjectID, 
 	}
 	return nil
 }
-func NewUserRepository(db *mongox.Database, name string) repository.IUserRepository {
+func NewUserRepository(db *mongox.Database, name string) domain.IUserRepository {
 	coll := mongox.NewCollection[domain.User](db, name)
 	return &UserRepository{coll: coll}
 }

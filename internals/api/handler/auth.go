@@ -13,7 +13,7 @@ import (
 	apiErr "github.com/amirdaaee/Glide/internals/api/err"
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/amirdaaee/Glide/internals/domain"
-	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
@@ -65,7 +65,7 @@ type tgProfileClaims struct {
 type AuthHandler struct {
 	oauth2Config  *oauth2.Config
 	verifier      *oidc.IDTokenVerifier
-	userRepo      repository.IUserRepository
+	users         service.IUserService
 	secureCookies bool
 }
 
@@ -154,7 +154,7 @@ func (h *AuthHandler) Callback(c *gin.Context) {
 		FirstName:  claims.GivenName,
 		LastName:   claims.FamilyName,
 	}
-	if err := h.userRepo.UpsertByTelegramID(c.Request.Context(), user); err != nil {
+	if err := h.users.UpsertByTelegramID(c.Request.Context(), user); err != nil {
 		c.Error(fmt.Errorf("failed to upsert user: %w", err))
 		return
 	}
@@ -175,7 +175,7 @@ func (h *AuthHandler) clearOAuthCookies(c *gin.Context) {
 	c.SetCookie(oauthStateCookie, "", -1, "/auth", "", h.secureCookies, true)
 	c.SetCookie(oauthVerifierCookie, "", -1, "/auth", "", h.secureCookies, true)
 }
-func NewAuthHandler(authCfg config.AuthConfigType, userRepo repository.IUserRepository) (*AuthHandler, error) {
+func NewAuthHandler(authCfg config.AuthConfigType, users service.IUserService) (*AuthHandler, error) {
 	provider, err := oidc.NewProvider(context.Background(), telegramOIDCIssuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC provider: %w", err)
@@ -193,7 +193,7 @@ func NewAuthHandler(authCfg config.AuthConfigType, userRepo repository.IUserRepo
 			},
 		},
 		verifier:      provider.Verifier(&oidc.Config{ClientID: authCfg.ClientID}),
-		userRepo:      userRepo,
+		users:         users,
 		secureCookies: authCfg.SecureCookies,
 	}, nil
 }

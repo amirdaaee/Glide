@@ -1,6 +1,11 @@
 package domain
 
-import "github.com/chenmingyong0423/go-mongox/v2"
+import (
+	"context"
+
+	"github.com/chenmingyong0423/go-mongox/v2"
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
 
 type MediaStatus string
 
@@ -24,4 +29,13 @@ type MediaFile struct {
 	Meta         MediaFileMeta `bson:"Meta"`
 	Status       MediaStatus   `bson:"Status"`
 	StorageURL   string        `bson:"StorageURL,omitempty"`
+}
+
+type IMediaRepository interface {
+	Create(ctx context.Context, media *MediaFile) error
+	GetByFID(ctx context.Context, fid int64) (*MediaFile, error)
+	GetMany(ctx context.Context, ids []bson.ObjectID) ([]*MediaFile, error)
+	Delete(ctx context.Context, fid int64) error
+	SetStatus(ctx context.Context, id bson.ObjectID, status MediaStatus) error
+	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
 }

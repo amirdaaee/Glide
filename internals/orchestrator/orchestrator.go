@@ -6,7 +6,7 @@ import (
 
 	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/pipeline"
-	"github.com/amirdaaee/Glide/internals/repository"
+	"github.com/amirdaaee/Glide/internals/service"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
@@ -16,11 +16,11 @@ type IOrchestrator interface {
 }
 
 type Orchestrator struct {
-	sub       pipeline.ISubscriber
-	pub       pipeline.IPublisher
-	mediaRepo repository.IMediaRepository
-	jobRepo   repository.IJobRepository
-	ll        *zap.Logger
+	sub   pipeline.ISubscriber
+	pub   pipeline.IPublisher
+	media service.IMediaService
+	jobs  service.IJobService
+	ll    *zap.Logger
 }
 
 var _ IOrchestrator = (*Orchestrator)(nil)
@@ -57,8 +57,8 @@ func (o *Orchestrator) handleResult(_ context.Context, msg pipeline.ResultMsg) e
 func New(
 	sub pipeline.ISubscriber,
 	pub pipeline.IPublisher,
-	mediaRepo repository.IMediaRepository,
-	jobRepo repository.IJobRepository,
+	media service.IMediaService,
+	jobs service.IJobService,
 ) (*Orchestrator, error) {
 	if sub == nil {
 		return nil, fmt.Errorf("subscriber is nil")
@@ -66,17 +66,17 @@ func New(
 	if pub == nil {
 		return nil, fmt.Errorf("publisher is nil")
 	}
-	if mediaRepo == nil {
-		return nil, fmt.Errorf("media repository is nil")
+	if media == nil {
+		return nil, fmt.Errorf("media service is nil")
 	}
-	if jobRepo == nil {
-		return nil, fmt.Errorf("job repository is nil")
+	if jobs == nil {
+		return nil, fmt.Errorf("job service is nil")
 	}
 	return &Orchestrator{
-		sub:       sub,
-		pub:       pub,
-		mediaRepo: mediaRepo,
-		jobRepo:   jobRepo,
-		ll:        log.GetLogger(log.ORCHESTRATOR),
+		sub:   sub,
+		pub:   pub,
+		media: media,
+		jobs:  jobs,
+		ll:    log.GetLogger(log.ORCHESTRATOR),
 	}, nil
 }
