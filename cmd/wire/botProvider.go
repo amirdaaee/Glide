@@ -52,7 +52,7 @@ func ProvideWorkerPool(sessCfg *tlg.SessionConfig, cfg *config.ConfigType) (work
 		if err != nil {
 			return nil, fmt.Errorf("can not create worker client %d: %w", i, err)
 		}
-		workers = append(workers, worker.NewWorker(cl, cfg.BotConfig.ChannelID, cfg.BotConfig.ChannelAccessHash))
+		workers = append(workers, worker.NewWorker(cl, cfg.BotConfig.ChannelID))
 	}
 	return worker.NewPool(workers), nil
 }
@@ -65,7 +65,6 @@ func ProvideBotHandlers(
 	h, err := bothandler.NewMediaHandler(
 		cl,
 		cfg.BotConfig.ChannelID,
-		cfg.BotConfig.ChannelAccessHash,
 		media,
 	)
 	if err != nil {
@@ -74,6 +73,6 @@ func ProvideBotHandlers(
 	return []bothandler.IHandler{h}, nil
 }
 
-func ProvideBot(cl tlg.IClient, wPool worker.IWorkerPool, handlers []bothandler.IHandler) (*bot.Bot, error) {
-	return bot.NewBot(cl, wPool, handlers)
+func ProvideBot(cl tlg.IClient, handlers []bothandler.IHandler) (*bot.Bot, error) {
+	return bot.NewBot(cl, handlers)
 }

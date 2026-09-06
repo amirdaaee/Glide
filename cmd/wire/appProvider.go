@@ -58,5 +58,5 @@ func ProvideJobService(jobs domain.IJobRepository) service.IJobService {
 }
 
 func ProvideIngestDispatcher(jobs service.IJobService, pub pipeline.IPublisher, cfg *config.ConfigType) service.IIngestDispatcher {
-	return service.NewIngestDispatcher(jobs, pub, cfg.BotConfig.ChannelID, cfg.BotConfig.ChannelAccessHash)
+	return service.NewIngestDispatcher(jobs, pub, cfg.BotConfig.ChannelID)
 }

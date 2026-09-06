@@ -33,5 +33,5 @@ func ProvideOrchestrator(
 	jobs service.IJobService,
 	cfg *config.ConfigType,
 ) (*orchestrator.Orchestrator, error) {
-	return orchestrator.New(sub, pub, media, jobs, cfg.BotConfig.ChannelID, cfg.BotConfig.ChannelAccessHash)
+	return orchestrator.New(sub, pub, media, jobs, cfg.BotConfig.ChannelID)
 }

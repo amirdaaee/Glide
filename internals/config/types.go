@@ -39,9 +39,8 @@ type MinioConfigType struct {
 }
 
 type BotConfigType struct {
-	Token             string `env:"TOKEN,required"`
-	ChannelID         int64  `env:"CHANNEL_ID,required"`
-	ChannelAccessHash int64  `env:"CHANNEL_ACCESS_HASH"`
+	Token     string `env:"TOKEN,required"`
+	ChannelID int64  `env:"CHANNEL_ID,required"`
 }
 
 type TelegramConfigType struct {

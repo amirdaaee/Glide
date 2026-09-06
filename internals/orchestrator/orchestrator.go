@@ -18,13 +18,12 @@ type IOrchestrator interface {
 }
 
 type Orchestrator struct {
-	sub               pipeline.ISubscriber
-	pub               pipeline.IPublisher
-	media             service.IMediaService
-	jobs              service.IJobService
-	channelID         int64
-	channelAccessHash int64
-	ll                *zap.Logger
+	sub       pipeline.ISubscriber
+	pub       pipeline.IPublisher
+	media     service.IMediaService
+	jobs      service.IJobService
+	channelID int64
+	ll        *zap.Logger
 }
 
 var _ IOrchestrator = (*Orchestrator)(nil)
@@ -102,7 +101,7 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 	if err != nil {
 		return err
 	}
-	return service.PublishDownloadWork(ctx, o.pub, media, o.channelID, o.channelAccessHash)
+	return service.PublishDownloadWork(ctx, o.pub, media, o.channelID)
 }
 
 func New(
@@ -110,7 +109,7 @@ func New(
 	pub pipeline.IPublisher,
 	media service.IMediaService,
 	jobs service.IJobService,
-	channelID, channelAccessHash int64,
+	channelID int64,
 ) (*Orchestrator, error) {
 	if sub == nil {
 		return nil, fmt.Errorf("subscriber is nil")
@@ -125,12 +124,11 @@ func New(
 		return nil, fmt.Errorf("job service is nil")
 	}
 	return &Orchestrator{
-		sub:               sub,
-		pub:               pub,
-		media:             media,
-		jobs:              jobs,
-		channelID:         channelID,
-		channelAccessHash: channelAccessHash,
-		ll:                log.GetLogger(log.ORCHESTRATOR),
+		sub:       sub,
+		pub:       pub,
+		media:     media,
+		jobs:      jobs,
+		channelID: channelID,
+		ll:        log.GetLogger(log.ORCHESTRATOR),
 	}, nil
 }

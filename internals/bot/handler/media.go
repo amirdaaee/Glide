@@ -16,11 +16,10 @@ import (
 
 // mediaHandler implements IHandler for processing media messages.
 type mediaHandler struct {
-	cl                tlg.IClient
-	channelID         int64
-	channelAccessHash int64
-	ll                *zap.Logger
-	media             service.IMediaService
+	cl      tlg.IClient
+	channel *tlg.Channel
+	ll      *zap.Logger
+	media   service.IMediaService
 }
 
 var _ IHandler = (*mediaHandler)(nil)
@@ -106,7 +105,10 @@ func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, ent
 	if err != nil {
 		return nil, fmt.Errorf("can not resolve from peer: %w", err)
 	}
-	toPeer := tlg.ChannelInputPeer(h.channelID, h.channelAccessHash)
+	toPeer, err := h.channel.InputPeer(ctx, api)
+	if err != nil {
+		return nil, fmt.Errorf("can not resolve channel peer: %w", err)
+	}
 	fwMsg, err := forward(ctx, api, fromPeer, toPeer, msg.ID)
 	if err != nil {
 		return nil, fmt.Errorf("can not forward message to channel: %w", err)
@@ -123,8 +125,12 @@ func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, ent
 }
 
 func (h *mediaHandler) getChannelDoc(ctx context.Context, api *tg.Client, msgID int) (*tg.Document, error) {
+	channel, err := h.channel.Input(ctx, api)
+	if err != nil {
+		return nil, fmt.Errorf("can not resolve channel: %w", err)
+	}
 	res, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
-		Channel: tlg.ChannelInput(h.channelID, h.channelAccessHash),
+		Channel: channel,
 		ID: []tg.InputMessageClass{
 			&tg.InputMessageID{ID: msgID},
 		},
@@ -222,7 +228,7 @@ func userProfileFromUpdate(entities tg.Entities, msg *tg.Message) (*domain.User,
 // NewMediaHandler creates a new handler instance with the given dependencies.
 func NewMediaHandler(
 	cl tlg.IClient,
-	channelID, channelAccessHash int64,
+	channelID int64,
 	media service.IMediaService,
 ) (IHandler, error) {
 	if cl == nil {
@@ -232,10 +238,9 @@ func NewMediaHandler(
 		return nil, fmt.Errorf("media service is nil")
 	}
 	return &mediaHandler{
-		cl:                cl,
-		channelID:         channelID,
-		channelAccessHash: channelAccessHash,
-		media:             media,
-		ll:                log.GetLogger(log.BOT).Named("mediaHandler"),
+		cl:      cl,
+		channel: tlg.NewChannel(channelID),
+		media:   media,
+		ll:      log.GetLogger(log.BOT).Named("mediaHandler"),
 	}, nil
 }

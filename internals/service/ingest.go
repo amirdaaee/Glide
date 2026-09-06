@@ -15,10 +15,9 @@ type IIngestDispatcher interface {
 }
 
 type IngestDispatcher struct {
-	jobs              IJobService
-	pub               pipeline.IPublisher
-	channelID         int64
-	channelAccessHash int64
+	jobs      IJobService
+	pub       pipeline.IPublisher
+	channelID int64
 }
 
 var _ IIngestDispatcher = (*IngestDispatcher)(nil)
@@ -53,10 +52,9 @@ func (d *IngestDispatcher) Dispatch(ctx context.Context, media *domain.MediaFile
 		return nil
 	}
 	payload, err := json.Marshal(pipeline.IngestPayload{
-		ChannelID:         d.channelID,
-		ChannelAccessHash: d.channelAccessHash,
-		MessageID:         media.MessageID,
-		FileID:            media.Meta.FileID,
+		ChannelID: d.channelID,
+		MessageID: media.MessageID,
+		FileID:    media.Meta.FileID,
 	})
 	if err != nil {
 		return fmt.Errorf("can not marshal ingest payload: %w", err)
@@ -94,10 +92,10 @@ func (d *IngestDispatcher) dispatchDownload(ctx context.Context, media *domain.M
 	} else if job.Step != domain.JobStepDownload {
 		return nil
 	}
-	return PublishDownloadWork(ctx, d.pub, media, d.channelID, d.channelAccessHash)
+	return PublishDownloadWork(ctx, d.pub, media, d.channelID)
 }
 
-func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *domain.MediaFile, channelID, channelAccessHash int64) error {
+func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *domain.MediaFile, channelID int64) error {
 	if pub == nil {
 		return fmt.Errorf("publisher is nil")
 	}
@@ -105,11 +103,10 @@ func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *do
 		return fmt.Errorf("media id is required")
 	}
 	payload, err := json.Marshal(pipeline.DownloadPayload{
-		ChannelID:         channelID,
-		ChannelAccessHash: channelAccessHash,
-		MessageID:         media.MessageID,
-		FileID:            media.Meta.FileID,
-		FileName:          media.Meta.FileName,
+		ChannelID: channelID,
+		MessageID: media.MessageID,
+		FileID:    media.Meta.FileID,
+		FileName:  media.Meta.FileName,
 	})
 	if err != nil {
 		return fmt.Errorf("can not marshal download payload: %w", err)
@@ -123,11 +120,10 @@ func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *do
 	})
 }
 
-func NewIngestDispatcher(jobs IJobService, pub pipeline.IPublisher, channelID, channelAccessHash int64) IIngestDispatcher {
+func NewIngestDispatcher(jobs IJobService, pub pipeline.IPublisher, channelID int64) IIngestDispatcher {
 	return &IngestDispatcher{
-		jobs:              jobs,
-		pub:               pub,
-		channelID:         channelID,
-		channelAccessHash: channelAccessHash,
+		jobs:      jobs,
+		pub:       pub,
+		channelID: channelID,
 	}
 }

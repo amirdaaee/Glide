@@ -40,18 +40,16 @@ type StepError struct {
 }
 
 type IngestPayload struct {
-	ChannelID         int64 `json:"channel_id"`
-	ChannelAccessHash int64 `json:"channel_access_hash"`
-	MessageID         int   `json:"message_id"`
-	FileID            int64 `json:"file_id"`
+	ChannelID int64 `json:"channel_id"`
+	MessageID int   `json:"message_id"`
+	FileID    int64 `json:"file_id"`
 }
 
 type DownloadPayload struct {
-	ChannelID         int64  `json:"channel_id"`
-	ChannelAccessHash int64  `json:"channel_access_hash"`
-	MessageID         int    `json:"message_id"`
-	FileID            int64  `json:"file_id"`
-	FileName          string `json:"file_name"`
+	ChannelID int64  `json:"channel_id"`
+	MessageID int    `json:"message_id"`
+	FileID    int64  `json:"file_id"`
+	FileName  string `json:"file_name"`
 }
 
 type IngestOutput struct {

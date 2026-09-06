@@ -21,10 +21,9 @@ type IWorkerPool interface {
 }
 
 type Worker struct {
-	cl                tlg.IClient
-	channelID         int64
-	channelAccessHash int64
-	ll                *zap.Logger
+	cl      tlg.IClient
+	channel *tlg.Channel
+	ll      *zap.Logger
 }
 
 var _ IWorker = (*Worker)(nil)
@@ -34,7 +33,17 @@ func (w *Worker) API() *tg.Client {
 }
 
 func (w *Worker) Start(ctx context.Context) error {
-	return w.cl.StartClient(ctx)
+	if err := w.cl.StartClient(ctx); err != nil {
+		return err
+	}
+	api := w.cl.API()
+	if api == nil {
+		return fmt.Errorf("worker client is not ready")
+	}
+	if err := w.channel.Resolve(ctx, api); err != nil {
+		return fmt.Errorf("can not resolve storage channel: %w", err)
+	}
+	return nil
 }
 
 func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
@@ -42,8 +51,12 @@ func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 	if api == nil {
 		return nil, fmt.Errorf("worker client is not ready")
 	}
+	channel, err := w.channel.Input(ctx, api)
+	if err != nil {
+		return nil, fmt.Errorf("can not resolve channel: %w", err)
+	}
 	res, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
-		Channel: tlg.ChannelInput(w.channelID, w.channelAccessHash),
+		Channel: channel,
 		ID: []tg.InputMessageClass{
 			&tg.InputMessageID{ID: msgID},
 		},
@@ -69,12 +82,11 @@ func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 	return nil, fmt.Errorf("message %d not found in channel", msgID)
 }
 
-func NewWorker(cl tlg.IClient, channelID, channelAccessHash int64) *Worker {
+func NewWorker(cl tlg.IClient, channelID int64) *Worker {
 	return &Worker{
-		cl:                cl,
-		channelID:         channelID,
-		channelAccessHash: channelAccessHash,
-		ll:                log.GetLogger(log.TELEGRAM).Named("worker"),
+		cl:      cl,
+		channel: tlg.NewChannel(channelID),
+		ll:      log.GetLogger(log.TELEGRAM).Named("worker"),
 	}
 }
 
