@@ -47,3 +47,33 @@ type IMediaObjectRepository interface {
 	PutThumbnail(ctx context.Context, id bson.ObjectID, body io.Reader, size int64, contentType string) (string, error)
 	Put(ctx context.Context, id bson.ObjectID, body io.Reader, size int64, contentType string) (string, error)
 }
+
+type ByseFile struct {
+	FileCode  string
+	Name      string
+	CanPlay   bool
+	Duration  int
+	Views     int
+	Uploaded  string
+	FolderID  int
+	Public    bool
+	Thumbnail string
+	Link      string
+}
+
+type ByseListFilter struct {
+	FolderID *int
+	Title    string
+	Created  string
+	Public   *bool
+	PerPage  int
+	Page     int
+}
+
+type IByseMediaRepository interface {
+	Create(ctx context.Context, name string, body io.Reader, size int64, contentType string) (*ByseFile, error)
+	Get(ctx context.Context, fileCode string) (*ByseFile, error)
+	List(ctx context.Context, filter ByseListFilter) ([]*ByseFile, error)
+	SetFolder(ctx context.Context, fileCode string, folderID int) error
+	Clone(ctx context.Context, fileCode string) (*ByseFile, error)
+}

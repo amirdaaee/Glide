@@ -61,6 +61,13 @@ type WorkerConfigType struct {
 	SessionPrefix string   `env:"SESSION_PREFIX" envDefault:"worker"`
 }
 
+type ByseConfigType struct {
+	BaseURL       string        `env:"BASE_URL" envDefault:"https://api.byse.sx"`
+	APIKey        string        `env:"API_KEY"`
+	Timeout       time.Duration `env:"TIMEOUT" envDefault:"30s"`
+	UploadTimeout time.Duration `env:"UPLOAD_TIMEOUT" envDefault:"30m"`
+}
+
 // ConfigType holds all configuration values loaded from environment variables, including API settings, MongoDB connection details, debug options, and logging preferences.
 type ConfigType struct {
 	ApiConfig      ApiConfigType      `envPrefix:"API_"`
@@ -72,4 +79,5 @@ type ConfigType struct {
 	WorkerConfig   WorkerConfigType   `envPrefix:"WORKER_"`
 	NatsConfig     NatsConfigType     `envPrefix:"NATS_"`
 	MinioConfig    MinioConfigType    `envPrefix:"MINIO_"`
+	ByseConfig     ByseConfigType     `envPrefix:"BYSE_"`
 }

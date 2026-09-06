@@ -6,6 +6,7 @@ import (
 
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/repository/byse"
 	"github.com/amirdaaee/Glide/internals/repository/minio"
 	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/worker"
@@ -22,6 +23,15 @@ func ProvideMediaObjectRepository(cfg *config.ConfigType) (domain.IMediaObjectRe
 		SecretAccessKey: cfg.MinioConfig.SecretAccessKey,
 		Bucket:          cfg.MinioConfig.Bucket,
 		UseSSL:          cfg.MinioConfig.UseSSL,
+	})
+}
+
+func ProvideByseMediaRepository(cfg *config.ConfigType) (domain.IByseMediaRepository, error) {
+	return byse.NewMediaRepository(byse.Options{
+		BaseURL:       cfg.ByseConfig.BaseURL,
+		APIKey:        cfg.ByseConfig.APIKey,
+		Timeout:       cfg.ByseConfig.Timeout,
+		UploadTimeout: cfg.ByseConfig.UploadTimeout,
 	})
 }
 

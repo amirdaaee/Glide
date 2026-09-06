@@ -32,6 +32,7 @@ func GetProvider() *dig.Container {
 	mustProvide(c, "botClient", ProvideBotClient)
 	mustProvide(c, "workerPool", ProvideWorkerPool)
 	mustProvide(c, "mediaObjectRepository", ProvideMediaObjectRepository)
+	mustProvide(c, "byseMediaRepository", ProvideByseMediaRepository)
 	mustProvide(c, "ingestWorker", ProvideIngestWorker)
 	mustProvide(c, "botHandlers", ProvideBotHandlers)
 	mustProvide(c, "bot", ProvideBot)
