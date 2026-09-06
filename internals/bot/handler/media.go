@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -48,80 +49,102 @@ func (h *mediaHandler) Register(d *tg.UpdateDispatcher) {
 
 }
 
-func isAudioMessage(msg *tg.Message) bool {
+func videoDocumentFromMessage(msg *tg.Message) (*tg.Document, bool) {
 	media, ok := msg.Media.(*tg.MessageMediaDocument)
 	if !ok || media.Document == nil {
-		return false
+		return nil, false
 	}
 	doc, ok := media.Document.(*tg.Document)
 	if !ok {
-		return false
+		return nil, false
 	}
 	for _, attr := range doc.Attributes {
-		if _, ok := attr.(*tg.DocumentAttributeAudio); ok {
-			return true
+		if _, ok := attr.(*tg.DocumentAttributeVideo); ok {
+			return doc, true
 		}
 	}
-	return strings.HasPrefix(doc.MimeType, "audio/")
+	if strings.HasPrefix(doc.MimeType, "video/") {
+		return doc, true
+	}
+	return nil, false
 }
 
-// handleMedia processes incoming media messages from users, forwards them, and stores metadata.
+// handleMedia processes incoming video messages from users, forwards new files, and stores metadata.
 func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error {
 	ll := h.ll.Named("handleMedia")
 	ll.Debug("new message received")
-	if !isAudioMessage(msg) {
-		return fmt.Errorf("not an audio message")
+	origDoc, ok := videoDocumentFromMessage(msg)
+	if !ok {
+		return fmt.Errorf("not a video message")
 	}
 	usr, err := userProfileFromUpdate(entities, msg)
 	if err != nil {
 		return fmt.Errorf("can not get user: %w", err)
 	}
-	wrkr := h.wPool.GetNextWorker()
-	if wrkr == nil {
-		return fmt.Errorf("no available worker")
-	}
-	fromPeer, err := peerFromMessage(entities, msg)
+	mediaFile, err := h.resolveMediaFile(ctx, api, entities, msg, origDoc)
 	if err != nil {
-		return fmt.Errorf("can not resolve from peer: %w", err)
-	}
-	toPeer := tlg.ChannelInputPeer(h.channelID, h.channelAccessHash)
-	fwMsg, err := forward(ctx, api, fromPeer, toPeer, msg.ID)
-	if err != nil {
-		return fmt.Errorf("can not forward message to channel: %w", err)
-	}
-	newDoc, err := wrkr.GetDoc(ctx, fwMsg.ID)
-	if err != nil {
-		return fmt.Errorf("can not get document from forwarded message: %w", err)
-	}
-	mediaFile, err := h.buildMediaFileDoc(newDoc, fwMsg.ID)
-	if err != nil {
-		return fmt.Errorf("can not build media file doc: %w", err)
+		return err
 	}
 	mediaDoc, err := h.media.EnsureAttached(ctx, usr, mediaFile)
 	if err != nil {
 		return err
 	}
-	ll.With(zap.Any("doc", mediaDoc)).Info("media file doc created")
+	ll.With(zap.Any("doc", mediaDoc)).Info("media file attached")
 	if err := h.sendSuccessMsg(ctx, api, entities, msg, mediaDoc); err != nil {
 		ll.With(zap.Error(err)).Error("can not send success message")
 	}
 	return nil
 }
 
-func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int) (*domain.MediaFile, error) {
+func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, origDoc *tg.Document) (*domain.MediaFile, error) {
+	existing, err := h.media.GetByFID(ctx, origDoc.ID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+	wrkr := h.wPool.GetNextWorker()
+	if wrkr == nil {
+		return nil, fmt.Errorf("no available worker")
+	}
+	fromPeer, err := peerFromMessage(entities, msg)
+	if err != nil {
+		return nil, fmt.Errorf("can not resolve from peer: %w", err)
+	}
+	toPeer := tlg.ChannelInputPeer(h.channelID, h.channelAccessHash)
+	fwMsg, err := forward(ctx, api, fromPeer, toPeer, msg.ID)
+	if err != nil {
+		return nil, fmt.Errorf("can not forward message to channel: %w", err)
+	}
+	newDoc, err := wrkr.GetDoc(ctx, fwMsg.ID)
+	if err != nil {
+		return nil, fmt.Errorf("can not get document from forwarded message: %w", err)
+	}
+	mediaFile, err := h.buildMediaFileDoc(newDoc, fwMsg.ID, origDoc.ID)
+	if err != nil {
+		return nil, fmt.Errorf("can not build media file doc: %w", err)
+	}
+	return mediaFile, nil
+}
+
+func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int, fileID int64) (*domain.MediaFile, error) {
 	docMeta := domain.MediaFileMeta{}
 	for _, attr := range doc.Attributes {
 		switch v := attr.(type) {
 		case *tg.DocumentAttributeFilename:
 			docMeta.FileName = v.FileName
+		case *tg.DocumentAttributeVideo:
+			docMeta.Duration = v.Duration
 		}
 	}
 	docMeta.FileSize = doc.Size
 	docMeta.MimeType = doc.MimeType
-	docMeta.FileID = doc.ID
+	docMeta.FileID = fileID
 	return &domain.MediaFile{
 		Meta:      docMeta,
 		MessageID: msgID,
+		Status:    domain.MediaStatusReceived,
 	}, nil
 }
 

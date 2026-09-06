@@ -58,7 +58,7 @@ func (r *UserRepository) Save(ctx context.Context, user *domain.User) error {
 
 func (r *UserRepository) AddMedia(ctx context.Context, userID, mediaID bson.ObjectID) error {
 	updateVal := update.NewBuilder().
-		Push("MediaList", mediaID).
+		AddToSet("MediaList", mediaID).
 		Build()
 	if _, err := r.coll.Updater().Filter(query.Id(userID)).Updates(updateVal).UpdateOne(ctx); err != nil {
 		return fmt.Errorf("can not add media to user: %w", err)

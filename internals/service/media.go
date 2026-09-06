@@ -10,6 +10,7 @@ import (
 
 type IMediaService interface {
 	ListIDsForTelegramUser(ctx context.Context, telegramID int64) ([]bson.ObjectID, error)
+	GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error)
 	GetOwnedByFID(ctx context.Context, telegramID int64, fid int64) (*domain.MediaFile, error)
 	UnlinkOwnedByFID(ctx context.Context, telegramID int64, fid int64) error
 	EnsureAttached(ctx context.Context, user *domain.User, media *domain.MediaFile) (*domain.MediaFile, error)
@@ -30,6 +31,14 @@ func (s *MediaService) ListIDsForTelegramUser(ctx context.Context, telegramID in
 		return nil, err
 	}
 	return user.MediaList, nil
+}
+
+func (s *MediaService) GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error) {
+	media, err := s.media.GetByFID(ctx, fid)
+	if err != nil {
+		return nil, fmt.Errorf("can not get media file by fid: %w", err)
+	}
+	return media, nil
 }
 
 func (s *MediaService) GetOwnedByFID(ctx context.Context, telegramID int64, fid int64) (*domain.MediaFile, error) {
