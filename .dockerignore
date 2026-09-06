@@ -1,0 +1,11 @@
+.git
+.github
+.gitignore
+.cursor
+.vscode
+.idea
+.env
+sessions
+docker-compose.dev.yaml
+.pre-commit-config.yaml
+*.md

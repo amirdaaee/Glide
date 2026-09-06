@@ -1,2 +1,3 @@
 .env
 sessions/*
+docker-compose.dev.yaml
