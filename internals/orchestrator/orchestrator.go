@@ -36,7 +36,6 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	subs := []string{
 		pipeline.SubjectResultIngest,
 		pipeline.SubjectResultDownload,
-		pipeline.SubjectResultUpload,
 	}
 	for _, subject := range subs {
 		subject := subject

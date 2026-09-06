@@ -30,17 +30,3 @@ func Run(ctx context.Context, sub pipeline.ISubscriber, pub pipeline.IPublisher,
 		return pub.PublishResult(ctx, resultSubject, *res)
 	})
 }
-
-func UnimplementedResult(msg pipeline.WorkMsg, step string) *pipeline.ResultMsg {
-	return &pipeline.ResultMsg{
-		TaskID:  msg.TaskID,
-		MediaID: msg.MediaID,
-		Step:    msg.Step,
-		Attempt: msg.Attempt,
-		OK:      false,
-		Error: &pipeline.StepError{
-			Message:   step + " worker not implemented",
-			Permanent: true,
-		},
-	}
-}

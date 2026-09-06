@@ -29,7 +29,6 @@ var _ IJobService = (*JobService)(nil)
 var nextJobStep = map[domain.JobStep]domain.JobStep{
 	domain.JobStepIngest:   domain.JobStepDownload,
 	domain.JobStepDownload: domain.JobStepDone,
-	domain.JobStepUpload:   domain.JobStepNotify,
 	domain.JobStepNotify:   domain.JobStepDone,
 }
 

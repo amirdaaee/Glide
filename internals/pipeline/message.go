@@ -9,10 +9,8 @@ import (
 const (
 	SubjectWorkIngest     = "glide.media.v1.work.ingest"
 	SubjectWorkDownload   = "glide.media.v1.work.download"
-	SubjectWorkUpload     = "glide.media.v1.work.upload"
 	SubjectResultIngest   = "glide.media.v1.result.ingest"
 	SubjectResultDownload = "glide.media.v1.result.download"
-	SubjectResultUpload   = "glide.media.v1.result.upload"
 	SubjectDLQ            = "glide.media.v1.dlq"
 	StreamName            = "GLIDE_MEDIA"
 	SubjectPrefix         = "glide.media.v1.>"
@@ -54,13 +52,6 @@ type DownloadPayload struct {
 	MessageID         int    `json:"message_id"`
 	FileID            int64  `json:"file_id"`
 	FileName          string `json:"file_name"`
-	UploadURL         string `json:"upload_url,omitempty"`
-}
-
-type UploadPayload struct {
-	TempPath  string `json:"temp_path"`
-	FileName  string `json:"file_name"`
-	UploadURL string `json:"upload_url,omitempty"`
 }
 
 type IngestOutput struct {
@@ -73,19 +64,12 @@ type DownloadOutput struct {
 	Size     int64  `json:"size"`
 }
 
-type UploadOutput struct {
-	StorageURL string `json:"storage_url"`
-	Size       int64  `json:"size"`
-}
-
 func WorkSubject(step domain.JobStep) string {
 	switch step {
 	case domain.JobStepIngest:
 		return SubjectWorkIngest
 	case domain.JobStepDownload:
 		return SubjectWorkDownload
-	case domain.JobStepUpload:
-		return SubjectWorkUpload
 	default:
 		return "glide.media.v1.work." + string(step)
 	}
@@ -97,8 +81,6 @@ func ResultSubject(step domain.JobStep) string {
 		return SubjectResultIngest
 	case domain.JobStepDownload:
 		return SubjectResultDownload
-	case domain.JobStepUpload:
-		return SubjectResultUpload
 	default:
 		return "glide.media.v1.result." + string(step)
 	}

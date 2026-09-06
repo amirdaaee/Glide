@@ -13,7 +13,6 @@ type JobStep string
 const (
 	JobStepIngest   JobStep = "ingest"
 	JobStepDownload JobStep = "download"
-	JobStepUpload   JobStep = "upload"
 	JobStepNotify   JobStep = "notify"
 	JobStepDone     JobStep = "done"
 	JobStepFailed   JobStep = "failed"

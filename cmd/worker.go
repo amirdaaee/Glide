@@ -10,7 +10,6 @@ import (
 	"github.com/amirdaaee/Glide/internals/workers"
 	"github.com/amirdaaee/Glide/internals/workers/download"
 	"github.com/amirdaaee/Glide/internals/workers/ingest"
-	"github.com/amirdaaee/Glide/internals/workers/upload"
 	"github.com/spf13/cobra"
 )
 
@@ -37,31 +36,14 @@ var workerCmd = &cobra.Command{
 				}
 				return workers.Run(cmd.Context(), sub, pub, step, downloadWorker)
 			})
-		case domain.JobStepUpload:
-			h, err := stepHandler(step)
-			if err != nil {
-				return err
-			}
-			return p.Invoke(func(sub pipeline.ISubscriber, pub pipeline.IPublisher) error {
-				return workers.Run(cmd.Context(), sub, pub, step, h)
-			})
 		default:
-			return fmt.Errorf("unknown worker step %q (want ingest, download, or upload)", step)
+			return fmt.Errorf("unknown worker step %q (want ingest or download)", step)
 		}
 	},
 }
 
-func stepHandler(step domain.JobStep) (workers.IStepHandler, error) {
-	switch step {
-	case domain.JobStepUpload:
-		return upload.New(), nil
-	default:
-		return nil, fmt.Errorf("unknown worker step %q (want ingest, download, or upload)", step)
-	}
-}
-
 func init() {
-	workerCmd.Flags().StringVar(&workerStep, "step", "", "pipeline step to consume (ingest|download|upload)")
+	workerCmd.Flags().StringVar(&workerStep, "step", "", "pipeline step to consume (ingest|download)")
 	_ = workerCmd.MarkFlagRequired("step")
 	rootCmd.AddCommand(workerCmd)
 }
