@@ -29,6 +29,20 @@ func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) e
 	return nil
 }
 
+func (r *MediaRepository) Get(ctx context.Context, id bson.ObjectID) (*domain.MediaFile, error) {
+	if id.IsZero() {
+		return nil, domain.ErrNotFound
+	}
+	media, err := r.coll.Finder().Filter(query.Id(id)).FindOne(ctx)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("can not get media file: %w", err)
+	}
+	return media, nil
+}
+
 func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error) {
 	media, err := r.coll.Finder().Filter(query.Eq("Meta.FileID", fid)).FindOne(ctx)
 	if err != nil {
@@ -87,6 +101,26 @@ func (r *MediaRepository) SetThumbnailURL(ctx context.Context, id bson.ObjectID,
 	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
 	if err != nil {
 		return fmt.Errorf("can not set media thumbnail url: %w", err)
+	}
+	if res.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *MediaRepository) SetStored(ctx context.Context, id bson.ObjectID, byse *domain.ByseFile) error {
+	if byse == nil || byse.FileCode == "" {
+		return fmt.Errorf("byse file code is required")
+	}
+	builder := update.NewBuilder().
+		Set("Byse", byse).
+		Set("Status", domain.MediaStatusReady)
+	if byse.Link != "" {
+		builder.Set("StorageURL", byse.Link)
+	}
+	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(builder.Build()).UpdateOne(ctx)
+	if err != nil {
+		return fmt.Errorf("can not set stored byse file: %w", err)
 	}
 	if res.MatchedCount == 0 {
 		return domain.ErrNotFound

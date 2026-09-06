@@ -30,7 +30,14 @@ var workerCmd = &cobra.Command{
 				}
 				return workers.Run(cmd.Context(), sub, pub, step, ingestWorker)
 			})
-		case domain.JobStepDownload, domain.JobStepUpload:
+		case domain.JobStepDownload:
+			return p.Invoke(func(sub pipeline.ISubscriber, pub pipeline.IPublisher, wPool worker.IWorkerPool, downloadWorker *download.Worker) error {
+				if err := wPool.Start(cmd.Context()); err != nil {
+					return err
+				}
+				return workers.Run(cmd.Context(), sub, pub, step, downloadWorker)
+			})
+		case domain.JobStepUpload:
 			h, err := stepHandler(step)
 			if err != nil {
 				return err
@@ -46,8 +53,6 @@ var workerCmd = &cobra.Command{
 
 func stepHandler(step domain.JobStep) (workers.IStepHandler, error) {
 	switch step {
-	case domain.JobStepDownload:
-		return download.New(), nil
 	case domain.JobStepUpload:
 		return upload.New(), nil
 	default:

@@ -31,7 +31,7 @@ type MongoConfigType struct {
 type NatsConfigType struct {
 	URL        string        `env:"URL" envDefault:"nats://127.0.0.1:4222"`
 	Stream     string        `env:"STREAM" envDefault:"GLIDE_MEDIA"`
-	AckWait    time.Duration `env:"ACK_WAIT" envDefault:"10m"`
+	AckWait    time.Duration `env:"ACK_WAIT" envDefault:"30m"`
 	MaxDeliver int           `env:"MAX_DELIVER" envDefault:"5"`
 }
 
@@ -59,6 +59,7 @@ type TelegramConfigType struct {
 type WorkerConfigType struct {
 	Tokens        []string `env:"TOKENS,required"`
 	SessionPrefix string   `env:"SESSION_PREFIX" envDefault:"worker"`
+	TempDir       string   `env:"TEMP_DIR"`
 }
 
 type ByseConfigType struct {

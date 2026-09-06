@@ -10,6 +10,7 @@ import (
 
 type IMediaService interface {
 	ListIDsForTelegramUser(ctx context.Context, telegramID int64) ([]bson.ObjectID, error)
+	Get(ctx context.Context, id bson.ObjectID) (*domain.MediaFile, error)
 	GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error)
 	GetOwnedByFID(ctx context.Context, telegramID int64, fid int64) (*domain.MediaFile, error)
 	UnlinkOwnedByFID(ctx context.Context, telegramID int64, fid int64) error
@@ -17,6 +18,7 @@ type IMediaService interface {
 	SetStatus(ctx context.Context, id bson.ObjectID, status domain.MediaStatus) error
 	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
 	SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error
+	SetStored(ctx context.Context, id bson.ObjectID, byse *domain.ByseFile) error
 }
 
 type MediaService struct {
@@ -33,6 +35,14 @@ func (s *MediaService) ListIDsForTelegramUser(ctx context.Context, telegramID in
 		return nil, err
 	}
 	return user.MediaList, nil
+}
+
+func (s *MediaService) Get(ctx context.Context, id bson.ObjectID) (*domain.MediaFile, error) {
+	media, err := s.media.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("can not get media file: %w", err)
+	}
+	return media, nil
 }
 
 func (s *MediaService) GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error) {
@@ -116,6 +126,13 @@ func (s *MediaService) SetStorageURL(ctx context.Context, id bson.ObjectID, url 
 func (s *MediaService) SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error {
 	if err := s.media.SetThumbnailURL(ctx, id, url); err != nil {
 		return fmt.Errorf("can not set media thumbnail url: %w", err)
+	}
+	return nil
+}
+
+func (s *MediaService) SetStored(ctx context.Context, id bson.ObjectID, byse *domain.ByseFile) error {
+	if err := s.media.SetStored(ctx, id, byse); err != nil {
+		return fmt.Errorf("can not set stored byse file: %w", err)
 	}
 	return nil
 }

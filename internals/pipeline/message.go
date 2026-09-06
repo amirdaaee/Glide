@@ -68,7 +68,8 @@ type IngestOutput struct {
 }
 
 type DownloadOutput struct {
-	TempPath string `json:"temp_path"`
+	FileCode string `json:"file_code"`
+	Link     string `json:"link"`
 	Size     int64  `json:"size"`
 }
 

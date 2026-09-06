@@ -31,16 +31,23 @@ type MediaFile struct {
 	Status       MediaStatus   `bson:"Status"`
 	StorageURL   string        `bson:"StorageURL,omitempty"`
 	ThumbnailURL string        `bson:"ThumbnailURL,omitempty"`
+	Byse         *ByseFile     `bson:"Byse,omitempty" json:"byse,omitempty"`
+}
+
+func (m *MediaFile) HasByse() bool {
+	return m != nil && m.Byse != nil && m.Byse.FileCode != ""
 }
 
 type IMediaRepository interface {
 	Create(ctx context.Context, media *MediaFile) error
+	Get(ctx context.Context, id bson.ObjectID) (*MediaFile, error)
 	GetByFID(ctx context.Context, fid int64) (*MediaFile, error)
 	GetMany(ctx context.Context, ids []bson.ObjectID) ([]*MediaFile, error)
 	Delete(ctx context.Context, fid int64) error
 	SetStatus(ctx context.Context, id bson.ObjectID, status MediaStatus) error
 	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
 	SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error
+	SetStored(ctx context.Context, id bson.ObjectID, byse *ByseFile) error
 }
 
 type IMediaObjectRepository interface {
@@ -49,16 +56,16 @@ type IMediaObjectRepository interface {
 }
 
 type ByseFile struct {
-	FileCode  string
-	Name      string
-	CanPlay   bool
-	Duration  int
-	Views     int
-	Uploaded  string
-	FolderID  int
-	Public    bool
-	Thumbnail string
-	Link      string
+	FileCode  string `bson:"FileCode,omitempty" json:"file_code,omitempty"`
+	Name      string `bson:"Name,omitempty" json:"name,omitempty"`
+	CanPlay   bool   `bson:"CanPlay,omitempty" json:"can_play,omitempty"`
+	Duration  int    `bson:"Duration,omitempty" json:"duration,omitempty"`
+	Views     int    `bson:"Views,omitempty" json:"views,omitempty"`
+	Uploaded  string `bson:"Uploaded,omitempty" json:"uploaded,omitempty"`
+	FolderID  int    `bson:"FolderID,omitempty" json:"folder_id,omitempty"`
+	Public    bool   `bson:"Public,omitempty" json:"public,omitempty"`
+	Thumbnail string `bson:"Thumbnail,omitempty" json:"thumbnail,omitempty"`
+	Link      string `bson:"Link,omitempty" json:"link,omitempty"`
 }
 
 type ByseListFilter struct {

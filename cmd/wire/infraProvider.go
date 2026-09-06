@@ -10,6 +10,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/repository/minio"
 	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/worker"
+	"github.com/amirdaaee/Glide/internals/workers/download"
 	"github.com/amirdaaee/Glide/internals/workers/ingest"
 	"github.com/chenmingyong0423/go-mongox/v2"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -41,6 +42,15 @@ func ProvideIngestWorker(
 	media service.IMediaService,
 ) (*ingest.Worker, error) {
 	return ingest.New(wPool, objects, media)
+}
+
+func ProvideDownloadWorker(
+	wPool worker.IWorkerPool,
+	media service.IMediaService,
+	byse domain.IByseMediaRepository,
+	cfg *config.ConfigType,
+) (*download.Worker, error) {
+	return download.New(wPool, media, byse, cfg.WorkerConfig.TempDir)
 }
 
 func ProvideMongoDB(cfg *config.ConfigType) (*mongox.Database, error) {

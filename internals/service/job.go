@@ -28,9 +28,14 @@ var _ IJobService = (*JobService)(nil)
 
 var nextJobStep = map[domain.JobStep]domain.JobStep{
 	domain.JobStepIngest:   domain.JobStepDownload,
-	domain.JobStepDownload: domain.JobStepUpload,
+	domain.JobStepDownload: domain.JobStepDone,
 	domain.JobStepUpload:   domain.JobStepNotify,
 	domain.JobStepNotify:   domain.JobStepDone,
+}
+
+func NextJobStep(from domain.JobStep) (domain.JobStep, bool) {
+	to, ok := nextJobStep[from]
+	return to, ok
 }
 
 func legalJobTransition(from, to domain.JobStep) bool {
