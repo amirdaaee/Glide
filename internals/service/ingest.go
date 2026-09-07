@@ -144,6 +144,7 @@ func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *do
 		MessageID: media.MessageID,
 		FileID:    media.Meta.FileID,
 		FileName:  media.Meta.FileName,
+		MimeType:  media.Meta.MimeType,
 	})
 	if err != nil {
 		return fmt.Errorf("can not marshal download payload: %w", err)

@@ -9,7 +9,6 @@ import (
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/pipeline"
-	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/amirdaaee/Glide/internals/workers"
 	"github.com/gotd/td/telegram/downloader"
@@ -21,7 +20,6 @@ import (
 type Worker struct {
 	wPool   worker.IWorkerPool
 	objects domain.IMediaObjectRepository
-	media   service.IMediaService
 	ll      *zap.Logger
 }
 
@@ -79,10 +77,6 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 	if err != nil {
 		ll.Error("can not store thumbnail", zap.Error(err))
 		return nil, fmt.Errorf("can not store thumbnail: %w", err)
-	}
-	if err := w.media.SetThumbnailURL(ctx, mediaID, url); err != nil {
-		ll.Error("can not set thumbnail url", zap.Error(err), zap.String("url", url))
-		return nil, fmt.Errorf("can not set thumbnail url: %w", err)
 	}
 	out, err := json.Marshal(pipeline.IngestOutput{ThumbnailURL: url})
 	if err != nil {
@@ -158,22 +152,18 @@ func mimeFromStorage(kind tg.StorageFileTypeClass) string {
 	}
 }
 
-func New(wPool worker.IWorkerPool, objects domain.IMediaObjectRepository, media service.IMediaService) (*Worker, error) {
+func New(wPool worker.IWorkerPool, objects domain.IMediaObjectRepository) (*Worker, error) {
 	if wPool == nil {
 		return nil, fmt.Errorf("worker pool is nil")
 	}
 	if objects == nil {
 		return nil, fmt.Errorf("media object repository is nil")
 	}
-	if media == nil {
-		return nil, fmt.Errorf("media service is nil")
-	}
 	ll := log.GetLogger(log.WORKERS).Named("ingest")
 	ll.Info("ingest worker created")
 	return &Worker{
 		wPool:   wPool,
 		objects: objects,
-		media:   media,
 		ll:      ll,
 	}, nil
 }

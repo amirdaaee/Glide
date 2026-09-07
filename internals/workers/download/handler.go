@@ -10,7 +10,6 @@ import (
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/pipeline"
-	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/amirdaaee/Glide/internals/workers"
 	"github.com/gotd/td/telegram/downloader"
@@ -21,7 +20,6 @@ import (
 
 type Worker struct {
 	wPool   worker.IWorkerPool
-	media   service.IMediaService
 	byse    domain.IByseMediaRepository
 	tempDir string
 	ll      *zap.Logger
@@ -52,6 +50,7 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 		zap.Int("message_id", payload.MessageID),
 		zap.Int64("file_id", payload.FileID),
 		zap.String("file_name", payload.FileName),
+		zap.String("mime_type", payload.MimeType),
 	)
 	mediaID, err := bson.ObjectIDFromHex(msg.MediaID)
 	if err != nil {
@@ -59,23 +58,7 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 		res.Error = &pipeline.StepError{Message: "invalid media id", Permanent: true}
 		return res, nil
 	}
-	media, err := w.media.Get(ctx, mediaID)
-	if err != nil {
-		ll.Error("can not get media file", zap.Error(err))
-		return nil, fmt.Errorf("can not get media file: %w", err)
-	}
-	if media.HasByse() {
-		ll.Info("media already stored on byse, skipping download",
-			zap.String("file_code", media.Byse.FileCode),
-			zap.Int64("size", media.Meta.FileSize),
-		)
-		return downloadOK(res, media.Byse, media.Meta.FileSize)
-	}
-	messageID := payload.MessageID
-	if messageID == 0 {
-		messageID = media.MessageID
-	}
-	if messageID == 0 {
+	if payload.MessageID == 0 {
 		ll.Warn("message id is required")
 		res.Error = &pipeline.StepError{Message: "message id is required", Permanent: true}
 		return res, nil
@@ -85,10 +68,10 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 		ll.Error("no available telegram worker")
 		return nil, fmt.Errorf("no available telegram worker")
 	}
-	ll.Debug("fetching channel document", zap.Int("message_id", messageID))
-	doc, err := wrkr.GetDoc(ctx, messageID)
+	ll.Debug("fetching channel document", zap.Int("message_id", payload.MessageID))
+	doc, err := wrkr.GetDoc(ctx, payload.MessageID)
 	if err != nil {
-		ll.Error("can not get channel document", zap.Error(err), zap.Int("message_id", messageID))
+		ll.Error("can not get channel document", zap.Error(err), zap.Int("message_id", payload.MessageID))
 		return nil, fmt.Errorf("can not get channel document: %w", err)
 	}
 	ll.Info("downloading document", zap.Int64("doc_id", doc.ID), zap.Int64("size", doc.Size), zap.String("mime", doc.MimeType))
@@ -105,14 +88,14 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 			ll.Debug("removed temp file", zap.String("path", tmpPath))
 		}
 	}()
-	stored, size, err := w.uploadByse(ctx, tmpPath, media, payload.FileName)
+	mime := payload.MimeType
+	if mime == "" {
+		mime = doc.MimeType
+	}
+	stored, size, err := w.uploadByse(ctx, tmpPath, payload.FileName, mime)
 	if err != nil {
 		ll.Error("can not upload to byse", zap.Error(err))
 		return nil, err
-	}
-	if err := w.media.SetStored(ctx, mediaID, stored); err != nil {
-		ll.Error("can not persist byse file", zap.Error(err), zap.String("file_code", stored.FileCode))
-		return nil, fmt.Errorf("can not persist byse file: %w", err)
 	}
 	ll.Info("media stored on byse",
 		zap.String("file_code", stored.FileCode),
@@ -166,7 +149,7 @@ func (w *Worker) downloadDocument(ctx context.Context, api *tg.Client, doc *tg.D
 	return tmpPath, nil
 }
 
-func (w *Worker) uploadByse(ctx context.Context, tmpPath string, media *domain.MediaFile, payloadName string) (*domain.ByseFile, int64, error) {
+func (w *Worker) uploadByse(ctx context.Context, tmpPath, name, mimeType string) (*domain.ByseFile, int64, error) {
 	ll := w.ll.Named("uploadByse").With(zap.String("path", tmpPath))
 	body, err := os.Open(filepath.Clean(tmpPath))
 	if err != nil {
@@ -179,15 +162,11 @@ func (w *Worker) uploadByse(ctx context.Context, tmpPath string, media *domain.M
 		ll.Error("can not stat temp file", zap.Error(err))
 		return nil, 0, fmt.Errorf("can not stat temp file: %w", err)
 	}
-	name := media.Meta.FileName
-	if name == "" {
-		name = payloadName
-	}
 	if name == "" {
 		name = "file"
 	}
-	ll.Info("uploading file", zap.String("name", name), zap.Int64("size", stat.Size()), zap.String("mime", media.Meta.MimeType))
-	created, err := w.byse.Create(ctx, name, body, stat.Size(), media.Meta.MimeType)
+	ll.Info("uploading file", zap.String("name", name), zap.Int64("size", stat.Size()), zap.String("mime", mimeType))
+	created, err := w.byse.Create(ctx, name, body, stat.Size(), mimeType)
 	if err != nil {
 		ll.Error("can not upload byse file", zap.Error(err), zap.String("name", name))
 		return nil, 0, fmt.Errorf("can not upload byse file: %w", err)
@@ -214,12 +193,7 @@ func (w *Worker) uploadByse(ctx context.Context, tmpPath string, media *domain.M
 }
 
 func downloadOK(res *pipeline.ResultMsg, byse *domain.ByseFile, size int64) (*pipeline.ResultMsg, error) {
-	out := pipeline.DownloadOutput{Size: size}
-	if byse != nil {
-		out.FileCode = byse.FileCode
-		out.Link = byse.Link
-	}
-	raw, err := json.Marshal(out)
+	raw, err := json.Marshal(pipeline.DownloadOutput{Byse: byse, Size: size})
 	if err != nil {
 		return nil, fmt.Errorf("can not marshal download output: %w", err)
 	}
@@ -228,12 +202,9 @@ func downloadOK(res *pipeline.ResultMsg, byse *domain.ByseFile, size int64) (*pi
 	return res, nil
 }
 
-func New(wPool worker.IWorkerPool, media service.IMediaService, byse domain.IByseMediaRepository, tempDir string) (*Worker, error) {
+func New(wPool worker.IWorkerPool, byse domain.IByseMediaRepository, tempDir string) (*Worker, error) {
 	if wPool == nil {
 		return nil, fmt.Errorf("worker pool is nil")
-	}
-	if media == nil {
-		return nil, fmt.Errorf("media service is nil")
 	}
 	if byse == nil {
 		return nil, fmt.Errorf("byse media repository is nil")
@@ -242,7 +213,6 @@ func New(wPool worker.IWorkerPool, media service.IMediaService, byse domain.IBys
 	ll.Info("download worker created", zap.String("temp_dir", tempDir))
 	return &Worker{
 		wPool:   wPool,
-		media:   media,
 		byse:    byse,
 		tempDir: tempDir,
 		ll:      ll,

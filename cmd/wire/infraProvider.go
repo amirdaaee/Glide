@@ -8,7 +8,6 @@ import (
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/repository/byse"
 	"github.com/amirdaaee/Glide/internals/repository/minio"
-	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/worker"
 	"github.com/amirdaaee/Glide/internals/workers/download"
 	"github.com/amirdaaee/Glide/internals/workers/ingest"
@@ -39,18 +38,16 @@ func ProvideByseMediaRepository(cfg *config.ConfigType) (domain.IByseMediaReposi
 func ProvideIngestWorker(
 	wPool worker.IWorkerPool,
 	objects domain.IMediaObjectRepository,
-	media service.IMediaService,
 ) (*ingest.Worker, error) {
-	return ingest.New(wPool, objects, media)
+	return ingest.New(wPool, objects)
 }
 
 func ProvideDownloadWorker(
 	wPool worker.IWorkerPool,
-	media service.IMediaService,
 	byse domain.IByseMediaRepository,
 	cfg *config.ConfigType,
 ) (*download.Worker, error) {
-	return download.New(wPool, media, byse, cfg.WorkerConfig.TempDir)
+	return download.New(wPool, byse, cfg.WorkerConfig.TempDir)
 }
 
 func ProvideMongoDB(cfg *config.ConfigType) (*mongox.Database, error) {

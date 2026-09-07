@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"github.com/amirdaaee/Glide/internals/domain"
@@ -48,16 +47,7 @@ func (r *MediaRepository) put(ctx context.Context, key string, body io.Reader, s
 	if _, err := r.client.PutObject(ctx, r.bucket, key, body, size, opts); err != nil {
 		return "", fmt.Errorf("can not put object %s: %w", key, err)
 	}
-	scheme := "http"
-	if r.useSSL {
-		scheme = "https"
-	}
-	u := url.URL{
-		Scheme: scheme,
-		Host:   r.endpoint,
-		Path:   r.bucket + "/" + key,
-	}
-	return u.String(), nil
+	return fmt.Sprintf("/%s/%s", r.bucket, key), nil
 }
 
 func extFromContentType(contentType string) string {

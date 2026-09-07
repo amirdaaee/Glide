@@ -50,6 +50,7 @@ type DownloadPayload struct {
 	MessageID int    `json:"message_id"`
 	FileID    int64  `json:"file_id"`
 	FileName  string `json:"file_name"`
+	MimeType  string `json:"mime_type"`
 }
 
 type IngestOutput struct {
@@ -57,9 +58,8 @@ type IngestOutput struct {
 }
 
 type DownloadOutput struct {
-	FileCode string `json:"file_code"`
-	Link     string `json:"link"`
-	Size     int64  `json:"size"`
+	Byse *domain.ByseFile `json:"byse,omitempty"`
+	Size int64            `json:"size"`
 }
 
 func WorkSubject(step domain.JobStep) string {

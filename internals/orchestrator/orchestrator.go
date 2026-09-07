@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/amirdaaee/Glide/internals/domain"
@@ -108,6 +109,9 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 		ll.Error("can not get media job", zap.Error(err))
 		return err
 	}
+	if err := o.applyResult(ctx, ll, mediaID, step, msg); err != nil {
+		return err
+	}
 	if err := o.jobs.MarkTaskDone(ctx, mediaID, msg.TaskID, step); err != nil {
 		ll.Error("can not mark task done", zap.Error(err))
 		return err
@@ -140,12 +144,55 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 		ll.Error("can not get media for download work", zap.Error(err))
 		return err
 	}
+	if media.HasByse() {
+		ll.Info("media already stored on byse, skipping download",
+			zap.String("file_code", media.Byse.FileCode),
+		)
+		return nil
+	}
 	if err := service.PublishDownloadWork(ctx, o.pub, media, o.channelID); err != nil {
 		ll.Error("can not publish download work", zap.Error(err))
 		return err
 	}
 	ll.Info("published download work", zap.Int("message_id", media.MessageID), zap.Int64("file_id", media.Meta.FileID))
 	return nil
+}
+
+func (o *Orchestrator) applyResult(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, step domain.JobStep, msg pipeline.ResultMsg) error {
+	switch step {
+	case domain.JobStepIngest:
+		var out pipeline.IngestOutput
+		if err := json.Unmarshal(msg.Output, &out); err != nil {
+			ll.Error("can not unmarshal ingest output", zap.Error(err))
+			return fmt.Errorf("can not unmarshal ingest output: %w", err)
+		}
+		if err := o.media.SetThumbnailURL(ctx, mediaID, out.ThumbnailURL); err != nil {
+			ll.Error("can not set thumbnail url", zap.Error(err), zap.String("url", out.ThumbnailURL))
+			return err
+		}
+		ll.Info("thumbnail url stored", zap.String("url", out.ThumbnailURL))
+		return nil
+	case domain.JobStepDownload:
+		var out pipeline.DownloadOutput
+		if err := json.Unmarshal(msg.Output, &out); err != nil {
+			ll.Error("can not unmarshal download output", zap.Error(err))
+			return fmt.Errorf("can not unmarshal download output: %w", err)
+		}
+		fileCode := ""
+		link := ""
+		if out.Byse != nil {
+			fileCode = out.Byse.FileCode
+			link = out.Byse.Link
+		}
+		if err := o.media.SetStored(ctx, mediaID, out.Byse); err != nil {
+			ll.Error("can not persist byse file", zap.Error(err), zap.String("file_code", fileCode))
+			return err
+		}
+		ll.Info("byse file stored", zap.String("file_code", fileCode), zap.String("link", link), zap.Int64("size", out.Size))
+		return nil
+	default:
+		return nil
+	}
 }
 
 func New(
