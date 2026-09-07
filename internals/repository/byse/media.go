@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/log"
+	"github.com/imroc/req/v3"
 	"go.uber.org/zap"
 )
 
@@ -26,10 +25,9 @@ type Options struct {
 }
 
 type MediaRepository struct {
-	baseURL    string
 	apiKey     string
-	client     *http.Client
-	uploadCl   *http.Client
+	client     *req.Client
+	uploadCl   *req.Client
 	uploadWait time.Duration
 	ll         *zap.Logger
 }
@@ -49,28 +47,30 @@ func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reade
 		ctx, cancel = context.WithTimeout(ctx, r.uploadWait)
 		defer cancel()
 	}
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	go func() {
-		pw.CloseWithError(writeUploadForm(mw, r.apiKey, name, contentType, body))
-	}()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL, pr)
-	if err != nil {
-		_ = pw.CloseWithError(err)
-		return nil, fmt.Errorf("can not build byse upload request: %w", err)
+	filename := name
+	if filename == "" {
+		filename = "file"
 	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := r.uploadCl.Do(req)
+	resp, err := r.uploadCl.R().
+		SetContext(ctx).
+		SetFormData(map[string]string{"key": r.apiKey}).
+		SetFileUpload(req.FileUpload{
+			ParamName:   "file",
+			FileName:    filename,
+			ContentType: contentType,
+			FileSize:    size,
+			GetFileContent: func() (io.ReadCloser, error) {
+				return io.NopCloser(body), nil
+			},
+		}).
+		EnableForceChunkedEncoding().
+		Post(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("can not upload byse file: %w", err)
 	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("can not read byse upload response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("can not upload byse file: unexpected http status %d (%s)", resp.StatusCode, string(raw))
+	raw := resp.Bytes()
+	if resp.GetStatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("can not upload byse file: unexpected http status %d (%s)", resp.GetStatusCode(), string(raw))
 	}
 	var out struct {
 		Msg    string `json:"msg"`
@@ -98,7 +98,7 @@ func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reade
 	if f.Status != "" && !strings.EqualFold(f.Status, "OK") {
 		return nil, fmt.Errorf("can not upload byse file: %s", f.Status)
 	}
-	filename := f.Filename
+	filename = f.Filename
 	if filename == "" {
 		filename = name
 	}
@@ -210,33 +210,6 @@ func (r *MediaRepository) uploadServer(ctx context.Context) (string, error) {
 	return server, nil
 }
 
-func writeUploadForm(mw *multipart.Writer, apiKey, name, contentType string, body io.Reader) error {
-	if err := mw.WriteField("key", apiKey); err != nil {
-		return err
-	}
-	filename := name
-	if filename == "" {
-		filename = "file"
-	}
-	hdr := make(textproto.MIMEHeader)
-	hdr.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, escapeQuotes(filename)))
-	if contentType != "" {
-		hdr.Set("Content-Type", contentType)
-	}
-	part, err := mw.CreatePart(hdr)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(part, body); err != nil {
-		return err
-	}
-	return mw.Close()
-}
-
-func escapeQuotes(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
-}
-
 func NewMediaRepository(opts Options) (domain.IByseMediaRepository, error) {
 	if strings.TrimSpace(opts.APIKey) == "" {
 		return nil, fmt.Errorf("byse api key is empty")
@@ -254,10 +227,12 @@ func NewMediaRepository(opts Options) (domain.IByseMediaRepository, error) {
 		uploadTimeout = 30 * time.Minute
 	}
 	return &MediaRepository{
-		baseURL:    baseURL,
-		apiKey:     opts.APIKey,
-		client:     &http.Client{Timeout: timeout},
-		uploadCl:   &http.Client{Timeout: uploadTimeout},
+		apiKey: opts.APIKey,
+		client: req.C().
+			SetBaseURL(baseURL).
+			SetTimeout(timeout).
+			SetCommonQueryParam("key", opts.APIKey),
+		uploadCl:   req.C().SetTimeout(uploadTimeout),
 		uploadWait: uploadTimeout,
 		ll:         log.Named(log.REPOSITORY, "byse"),
 	}, nil

@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/imroc/req/v3"
 )
 
 type apiEnvelope struct {
@@ -104,39 +104,27 @@ func (v *flexInt) UnmarshalJSON(b []byte) error {
 }
 
 func (r *MediaRepository) get(ctx context.Context, path string, params url.Values, dest any) error {
-	if params == nil {
-		params = url.Values{}
-	}
-	params.Set("key", r.apiKey)
-	u := r.baseURL + path
+	httpReq := r.client.R().SetContext(ctx)
 	if encoded := params.Encode(); encoded != "" {
-		u += "?" + encoded
+		httpReq.SetQueryString(encoded)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return fmt.Errorf("can not build request: %w", err)
-	}
-	resp, err := r.client.Do(req)
+	resp, err := httpReq.Get(path)
 	if err != nil {
 		return fmt.Errorf("can not call %s: %w", path, err)
 	}
-	defer resp.Body.Close()
 	return decodeEnvelope(path, resp, dest)
 }
 
-func decodeEnvelope(path string, resp *http.Response, dest any) error {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("can not read %s: %w", path, err)
-	}
-	if resp.StatusCode == http.StatusNotFound {
+func decodeEnvelope(path string, resp *req.Response, dest any) error {
+	status := resp.GetStatusCode()
+	if status == http.StatusNotFound {
 		return domain.ErrNotFound
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: unexpected http status %d", path, resp.StatusCode)
+	if status != http.StatusOK {
+		return fmt.Errorf("%s: unexpected http status %d", path, status)
 	}
 	var env apiEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
+	if err := json.Unmarshal(resp.Bytes(), &env); err != nil {
 		return fmt.Errorf("can not decode %s: %w", path, err)
 	}
 	if env.Status != 0 && env.Status != http.StatusOK {
