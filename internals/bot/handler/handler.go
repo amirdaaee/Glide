@@ -31,7 +31,7 @@ func HandlerWithErrorMessage(fn messageHandlerFunc, name string) messageHandlerF
 				fields = append(fields, zap.Int("msg_id", msg.ID))
 			}
 			ll.Warn("handler failed", fields...)
-			if sendErr := replyText(ctx, api, entities, msg, err.Error()); sendErr != nil {
+			if _, sendErr := replyText(ctx, api, entities, msg, string(ClientStatusFailed)); sendErr != nil {
 				fields := []zap.Field{zap.Error(sendErr)}
 				if msg != nil {
 					fields = append(fields, zap.Int("msg_id", msg.ID))
@@ -44,18 +44,77 @@ func HandlerWithErrorMessage(fn messageHandlerFunc, name string) messageHandlerF
 	}
 }
 
-func replyText(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, text string) error {
+func replyText(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, text string) (int, error) {
 	peer, err := peerFromMessage(entities, msg)
 	if err != nil {
-		return fmt.Errorf("can not resolve peer for reply: %w", err)
+		return 0, fmt.Errorf("can not resolve peer for reply: %w", err)
 	}
-	_, err = api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
+	upd, err := api.MessagesSendMessage(ctx, &tg.MessagesSendMessageRequest{
 		Peer:     peer,
 		Message:  text,
 		ReplyTo:  &tg.InputReplyToMessage{ReplyToMsgID: msg.ID},
 		RandomID: randomID(),
 	})
+	if err != nil {
+		return 0, err
+	}
+	id, err := sentMessageID(upd)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// EditText updates a previously sent bot message.
+func EditText(ctx context.Context, api *tg.Client, peer tg.InputPeerClass, messageID int, text string) error {
+	if api == nil {
+		return fmt.Errorf("telegram api is nil")
+	}
+	if peer == nil {
+		return fmt.Errorf("peer is nil")
+	}
+	if messageID == 0 {
+		return fmt.Errorf("message id is required")
+	}
+	_, err := api.MessagesEditMessage(ctx, &tg.MessagesEditMessageRequest{
+		Peer:    peer,
+		ID:      messageID,
+		Message: text,
+	})
 	return err
+}
+
+func sentMessageID(upd tg.UpdatesClass) (int, error) {
+	switch u := upd.(type) {
+	case *tg.UpdateShortSentMessage:
+		return u.ID, nil
+	case *tg.UpdateShortMessage:
+		return u.ID, nil
+	case *tg.Updates:
+		return messageIDFromUpdates(u.Updates)
+	case *tg.UpdatesCombined:
+		return messageIDFromUpdates(u.Updates)
+	default:
+		return 0, fmt.Errorf("unexpected send message result type: %T", upd)
+	}
+}
+
+func messageIDFromUpdates(updates []tg.UpdateClass) (int, error) {
+	for _, up := range updates {
+		switch v := up.(type) {
+		case *tg.UpdateMessageID:
+			return v.ID, nil
+		case *tg.UpdateNewMessage:
+			if m, ok := v.Message.(*tg.Message); ok {
+				return m.ID, nil
+			}
+		case *tg.UpdateNewChannelMessage:
+			if m, ok := v.Message.(*tg.Message); ok {
+				return m.ID, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("no sent message id in updates")
 }
 
 func peerFromMessage(entities tg.Entities, msg *tg.Message) (tg.InputPeerClass, error) {

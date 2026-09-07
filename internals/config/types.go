@@ -20,6 +20,7 @@ type MongoConfigType struct {
 	MediaCollection          string        `env:"MEDIA_COLLECTION" envDefault:"media"`
 	JobsCollection           string        `env:"JOBS_COLLECTION" envDefault:"jobs"`
 	ProcessedTasksCollection string        `env:"PROCESSED_TASKS_COLLECTION" envDefault:"processed_tasks"`
+	StatusRepliesCollection  string        `env:"STATUS_REPLIES_COLLECTION" envDefault:"status_replies"`
 	PingTimeout              time.Duration `env:"PING_TIMEOUT" envDefault:"5s"`
 }
 

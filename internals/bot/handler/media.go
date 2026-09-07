@@ -11,6 +11,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/tlg"
 	"github.com/gotd/td/tg"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.uber.org/zap"
 )
 
@@ -20,6 +21,7 @@ type mediaHandler struct {
 	channel *tlg.Channel
 	ll      *zap.Logger
 	media   service.IMediaService
+	replies service.IStatusReplyService
 }
 
 var _ IHandler = (*mediaHandler)(nil)
@@ -68,12 +70,34 @@ func videoDocumentFromMessage(msg *tg.Message) (*tg.Document, bool) {
 	return nil, false
 }
 
+func isUnacceptableMedia(msg *tg.Message) bool {
+	if msg == nil || msg.Media == nil {
+		return false
+	}
+	switch msg.Media.(type) {
+	case *tg.MessageMediaPhoto:
+		return true
+	case *tg.MessageMediaDocument:
+		_, ok := videoDocumentFromMessage(msg)
+		return !ok
+	default:
+		return false
+	}
+}
+
 // handleMedia processes incoming video messages from users, forwards new files, and stores metadata.
 func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error {
 	ll := h.ll.Named("handleMedia").With(zap.Int("msg_id", msg.ID))
 	origDoc, ok := videoDocumentFromMessage(msg)
 	if !ok {
-		ll.Debug("ignoring non-video message")
+		if isUnacceptableMedia(msg) {
+			ll.Info("rejecting non-video media")
+			if _, err := replyText(ctx, api, entities, msg, string(ClientStatusRejected)); err != nil {
+				ll.Error("can not send rejected status", zap.Error(err))
+			}
+			return nil
+		}
+		ll.Debug("ignoring non-media message")
 		return nil
 	}
 	ll.Info("processing video",
@@ -81,33 +105,92 @@ func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities
 		zap.Int64("size", origDoc.Size),
 		zap.String("mime", origDoc.MimeType),
 	)
-	usr, err := userProfileFromUpdate(entities, msg)
+	tgUser, err := userFromUpdate(entities, msg)
 	if err != nil {
 		ll.Error("can not get user", zap.Error(err))
 		return fmt.Errorf("can not get user: %w", err)
 	}
+	usr := userFromTelegram(tgUser)
 	ll = ll.With(zap.Int64("telegram_id", usr.TelegramID), zap.String("username", usr.Username))
 	mediaFile, err := h.resolveMediaFile(ctx, api, entities, msg, origDoc)
 	if err != nil {
 		ll.Error("can not resolve media file", zap.Error(err))
 		return err
 	}
-	mediaDoc, err := h.media.EnsureAttached(ctx, usr, mediaFile)
+	user, mediaDoc, err := h.media.EnsureAttached(ctx, usr, mediaFile)
 	if err != nil {
 		ll.Error("can not attach media", zap.Error(err))
 		return err
 	}
+	mediaID := mediaDoc.ID
+	mediaDoc, err = h.media.Get(ctx, mediaID)
+	if err != nil {
+		ll.Error("can not re-read media after attach", zap.Error(err))
+		return err
+	}
 	ll.Info("media file attached",
 		zap.String("media_id", mediaDoc.ID.Hex()),
+		zap.String("user_id", user.ID.Hex()),
 		zap.Int64("file_id", mediaDoc.Meta.FileID),
 		zap.String("file_name", mediaDoc.Meta.FileName),
 		zap.Int("channel_msg_id", mediaDoc.MessageID),
 		zap.String("status", string(mediaDoc.Status)),
 	)
-	if err := h.sendSuccessMsg(ctx, api, entities, msg, mediaDoc); err != nil {
-		ll.Error("can not send success message", zap.Error(err))
+	status := ClientStatusFromMedia(mediaDoc.Status)
+	replyID, err := replyText(ctx, api, entities, msg, string(status))
+	if err != nil {
+		ll.Error("can not send status reply", zap.Error(err), zap.String("status", string(status)))
+		return err
+	}
+	if status != ClientStatusProcessing {
+		return nil
+	}
+	peer := tgUser.AsInputPeer()
+	if err := h.replies.Upsert(ctx, &domain.MediaStatusReply{
+		MediaID:    mediaID,
+		UserID:     user.ID,
+		TelegramID: tgUser.ID,
+		AccessHash: tgUser.AccessHash,
+		MessageID:  replyID,
+	}); err != nil {
+		ll.Error("can not persist status reply", zap.Error(err))
+		h.failClientReply(ctx, api, peer, replyID, user.ID, mediaID)
+		return nil
+	}
+	mediaDoc, err = h.media.Get(ctx, mediaID)
+	if err != nil {
+		ll.Error("can not re-read media after status reply", zap.Error(err))
+		h.failClientReply(ctx, api, peer, replyID, user.ID, mediaID)
+		return nil
+	}
+	status = ClientStatusFromMedia(mediaDoc.Status)
+	if status.terminal() {
+		if err := EditText(ctx, api, peer, replyID, string(status)); err != nil {
+			ll.Error("can not edit status reply to terminal", zap.Error(err), zap.String("status", string(status)))
+		}
+		if err := h.replies.Delete(ctx, mediaID, user.ID); err != nil {
+			ll.Error("can not delete status reply after terminal edit", zap.Error(err))
+		}
+		return nil
+	}
+	if err := h.media.Dispatch(ctx, mediaDoc); err != nil {
+		ll.Error("can not dispatch ingest", zap.Error(err))
+		h.failClientReply(ctx, api, peer, replyID, user.ID, mediaID)
+		return nil
 	}
 	return nil
+}
+
+func (h *mediaHandler) failClientReply(ctx context.Context, api *tg.Client, peer tg.InputPeerClass, replyID int, userID, mediaID bson.ObjectID) {
+	ll := h.ll.Named("failClientReply")
+	if err := EditText(ctx, api, peer, replyID, string(ClientStatusFailed)); err != nil {
+		ll.Error("can not edit status reply to failed", zap.Error(err), zap.Int("reply_id", replyID))
+	}
+	if !mediaID.IsZero() && !userID.IsZero() {
+		if err := h.replies.Delete(ctx, mediaID, userID); err != nil {
+			ll.Error("can not delete status reply after fail", zap.Error(err))
+		}
+	}
 }
 
 func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, origDoc *tg.Document) (*domain.MediaFile, error) {
@@ -241,34 +324,14 @@ func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int, fileID int
 	}, nil
 }
 
-func (h *mediaHandler) sendSuccessMsg(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, doc *domain.MediaFile) error {
-	ll := h.ll.Named("sendSuccessMsg").With(
-		zap.Int("msg_id", msg.ID),
-		zap.Int64("file_id", doc.Meta.FileID),
-		zap.String("file_name", doc.Meta.FileName),
-	)
-	ll.Debug("sending success message")
-	m := fmt.Sprintf("ok: %s (%d)", doc.Meta.FileName, doc.Meta.FileID)
-	if err := replyText(ctx, api, entities, msg, m); err != nil {
-		ll.Error("failed to send success message", zap.Error(err))
-		return fmt.Errorf("failed to send success message: %w", err)
-	}
-	ll.Debug("success message sent")
-	return nil
-}
-
-func userProfileFromUpdate(entities tg.Entities, msg *tg.Message) (*domain.User, error) {
-	tgUser, err := userFromUpdate(entities, msg)
-	if err != nil {
-		return nil, err
-	}
+func userFromTelegram(tgUser *tg.User) *domain.User {
 	return &domain.User{
 		TelegramID:   tgUser.ID,
 		Username:     tgUser.Username,
 		FirstName:    tgUser.FirstName,
 		LastName:     tgUser.LastName,
 		LanguageCode: tgUser.LangCode,
-	}, nil
+	}
 }
 
 // NewMediaHandler creates a new handler instance with the given dependencies.
@@ -276,6 +339,7 @@ func NewMediaHandler(
 	cl tlg.IClient,
 	channelID int64,
 	media service.IMediaService,
+	replies service.IStatusReplyService,
 ) (IHandler, error) {
 	if cl == nil {
 		return nil, fmt.Errorf("telegram client is nil")
@@ -283,10 +347,14 @@ func NewMediaHandler(
 	if media == nil {
 		return nil, fmt.Errorf("media service is nil")
 	}
+	if replies == nil {
+		return nil, fmt.Errorf("status reply service is nil")
+	}
 	return &mediaHandler{
 		cl:      cl,
 		channel: tlg.NewChannel(channelID),
 		media:   media,
+		replies: replies,
 		ll:      log.GetLogger(log.BOT).Named("mediaHandler"),
 	}, nil
 }

@@ -13,15 +13,21 @@ import (
 
 // Bot represents the core bot instance that manages the Telegram client.
 type Bot struct {
-	cl tlg.IClient
-	ll *zap.Logger
+	cl       tlg.IClient
+	notifier *Notifier
+	ll       *zap.Logger
 }
 
 // Start runs the bot client until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	ll := b.ll.Named("Start")
 	ll.Info("starting bot client")
-	err := b.cl.RunBot(ctx)
+	if err := b.cl.StartClient(ctx); err != nil {
+		ll.Error("can not start bot client", zap.Error(err))
+		return err
+	}
+	ll.Info("bot client ready")
+	err := b.notifier.Start(ctx)
 	if err != nil && ctx.Err() == nil {
 		ll.Error("bot stopped with error", zap.Error(err))
 		return err
@@ -31,11 +37,15 @@ func (b *Bot) Start(ctx context.Context) error {
 }
 
 // NewBot creates a Bot, registers handlers on an update dispatcher, and attaches it to the client.
-func NewBot(cl tlg.IClient, handlers []bothandler.IHandler) (*Bot, error) {
+func NewBot(cl tlg.IClient, handlers []bothandler.IHandler, notifier *Notifier) (*Bot, error) {
 	ll := log.GetLogger(log.BOT)
 	if cl == nil {
 		ll.Error("telegram client is nil")
 		return nil, fmt.Errorf("telegram client is nil")
+	}
+	if notifier == nil {
+		ll.Error("notifier is nil")
+		return nil, fmt.Errorf("notifier is nil")
 	}
 	ll.Info("registering handlers", zap.Int("count", len(handlers)))
 	dispatcher := tg.NewUpdateDispatcher()
@@ -45,7 +55,8 @@ func NewBot(cl tlg.IClient, handlers []bothandler.IHandler) (*Bot, error) {
 	cl.SetUpdateHandler(dispatcher)
 	ll.Info("bot created")
 	return &Bot{
-		cl: cl,
-		ll: ll,
+		cl:       cl,
+		notifier: notifier,
+		ll:       ll,
 	}, nil
 }

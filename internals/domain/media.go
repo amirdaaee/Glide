@@ -38,6 +38,24 @@ func (m *MediaFile) HasByse() bool {
 	return m != nil && m.Byse != nil && m.Byse.FileCode != ""
 }
 
+// MediaStatusReply is the Telegram message the bot will edit when this media
+// reaches a terminal status. One pending reply per client per media.
+type MediaStatusReply struct {
+	mongox.Model `bson:",inline"`
+	MediaID      bson.ObjectID `bson:"MediaID"`
+	UserID       bson.ObjectID `bson:"UserID"`
+	TelegramID   int64         `bson:"TelegramID"`
+	AccessHash   int64         `bson:"AccessHash"`
+	MessageID    int           `bson:"MessageID"`
+}
+
+type IMediaStatusReplyRepository interface {
+	Upsert(ctx context.Context, reply *MediaStatusReply) error
+	ListByMediaID(ctx context.Context, mediaID bson.ObjectID) ([]*MediaStatusReply, error)
+	DeleteByMediaID(ctx context.Context, mediaID bson.ObjectID) error
+	Delete(ctx context.Context, mediaID, userID bson.ObjectID) error
+}
+
 type IMediaRepository interface {
 	Create(ctx context.Context, media *MediaFile) error
 	Get(ctx context.Context, id bson.ObjectID) (*MediaFile, error)

@@ -9,6 +9,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/log"
 	"github.com/amirdaaee/Glide/internals/pipeline"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.uber.org/zap"
 )
 
@@ -153,6 +154,26 @@ func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *do
 		TaskID:  media.ID.Hex() + "-download",
 		MediaID: media.ID.Hex(),
 		Step:    string(domain.JobStepDownload),
+		Attempt: 1,
+		Payload: payload,
+	})
+}
+
+func PublishNotifyWork(ctx context.Context, pub pipeline.IPublisher, mediaID bson.ObjectID, status domain.MediaStatus) error {
+	if pub == nil {
+		return fmt.Errorf("publisher is nil")
+	}
+	if mediaID.IsZero() {
+		return fmt.Errorf("media id is required")
+	}
+	payload, err := json.Marshal(pipeline.NotifyPayload{Status: status})
+	if err != nil {
+		return fmt.Errorf("can not marshal notify payload: %w", err)
+	}
+	return pub.PublishWork(ctx, pipeline.WorkSubject(domain.JobStepNotify), pipeline.WorkMsg{
+		TaskID:  mediaID.Hex() + "-notify-" + string(status),
+		MediaID: mediaID.Hex(),
+		Step:    string(domain.JobStepNotify),
 		Attempt: 1,
 		Payload: payload,
 	})

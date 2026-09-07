@@ -53,6 +53,10 @@ func ProvideMediaService(media domain.IMediaRepository, users service.IUserServi
 	return service.NewMediaService(media, users, ingest)
 }
 
+func ProvideStatusReplyService(replies domain.IMediaStatusReplyRepository) service.IStatusReplyService {
+	return service.NewStatusReplyService(replies)
+}
+
 func ProvideJobService(jobs domain.IJobRepository) service.IJobService {
 	return service.NewJobService(jobs)
 }

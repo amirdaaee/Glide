@@ -14,7 +14,8 @@ type IMediaService interface {
 	GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error)
 	GetOwnedByFID(ctx context.Context, telegramID int64, fid int64) (*domain.MediaFile, error)
 	UnlinkOwnedByFID(ctx context.Context, telegramID int64, fid int64) error
-	EnsureAttached(ctx context.Context, user *domain.User, media *domain.MediaFile) (*domain.MediaFile, error)
+	EnsureAttached(ctx context.Context, user *domain.User, media *domain.MediaFile) (*domain.User, *domain.MediaFile, error)
+	Dispatch(ctx context.Context, media *domain.MediaFile) error
 	SetStatus(ctx context.Context, id bson.ObjectID, status domain.MediaStatus) error
 	SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error
 	SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error
@@ -69,22 +70,26 @@ func (s *MediaService) UnlinkOwnedByFID(ctx context.Context, telegramID int64, f
 	return nil
 }
 
-func (s *MediaService) EnsureAttached(ctx context.Context, user *domain.User, media *domain.MediaFile) (*domain.MediaFile, error) {
+func (s *MediaService) EnsureAttached(ctx context.Context, user *domain.User, media *domain.MediaFile) (*domain.User, *domain.MediaFile, error) {
 	usr, err := s.users.GetOrCreate(ctx, user)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	media, err = s.getOrCreateByFID(ctx, media)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := s.users.AttachMedia(ctx, usr.ID, media.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	return usr, media, nil
+}
+
+func (s *MediaService) Dispatch(ctx context.Context, media *domain.MediaFile) error {
 	if err := s.ingest.Dispatch(ctx, media); err != nil {
-		return nil, fmt.Errorf("can not dispatch ingest: %w", err)
+		return fmt.Errorf("can not dispatch ingest: %w", err)
 	}
-	return media, nil
+	return nil
 }
 
 func (s *MediaService) getOrCreateByFID(ctx context.Context, media *domain.MediaFile) (*domain.MediaFile, error) {

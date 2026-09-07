@@ -9,6 +9,7 @@ import (
 const (
 	SubjectWorkIngest     = "glide.media.v1.work.ingest"
 	SubjectWorkDownload   = "glide.media.v1.work.download"
+	SubjectWorkNotify     = "glide.media.v1.work.notify"
 	SubjectResultIngest   = "glide.media.v1.result.ingest"
 	SubjectResultDownload = "glide.media.v1.result.download"
 	SubjectDLQ            = "glide.media.v1.dlq"
@@ -62,12 +63,18 @@ type DownloadOutput struct {
 	Size int64            `json:"size"`
 }
 
+type NotifyPayload struct {
+	Status domain.MediaStatus `json:"status"`
+}
+
 func WorkSubject(step domain.JobStep) string {
 	switch step {
 	case domain.JobStepIngest:
 		return SubjectWorkIngest
 	case domain.JobStepDownload:
 		return SubjectWorkDownload
+	case domain.JobStepNotify:
+		return SubjectWorkNotify
 	default:
 		return "glide.media.v1.work." + string(step)
 	}

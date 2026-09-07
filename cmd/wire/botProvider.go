@@ -8,6 +8,7 @@ import (
 	bothandler "github.com/amirdaaee/Glide/internals/bot/handler"
 	"github.com/amirdaaee/Glide/internals/config"
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/pipeline"
 	"github.com/amirdaaee/Glide/internals/repository/mongo"
 	"github.com/amirdaaee/Glide/internals/service"
 	"github.com/amirdaaee/Glide/internals/tlg"
@@ -30,6 +31,10 @@ func ProvideMediaRepository(cfg *config.ConfigType, db *mongox.Database) domain.
 
 func ProvideJobRepository(cfg *config.ConfigType, db *mongox.Database) (domain.IJobRepository, error) {
 	return mongo.NewJobRepository(db, cfg.MongoConfig.JobsCollection, cfg.MongoConfig.ProcessedTasksCollection)
+}
+
+func ProvideStatusReplyRepository(cfg *config.ConfigType, db *mongox.Database) (domain.IMediaStatusReplyRepository, error) {
+	return mongo.NewStatusReplyRepository(db, cfg.MongoConfig.StatusRepliesCollection)
 }
 
 func ProvideBotClient(sessCfg *tlg.SessionConfig, cfg *config.ConfigType) (tlg.IClient, error) {
@@ -61,11 +66,13 @@ func ProvideBotHandlers(
 	cl tlg.IClient,
 	cfg *config.ConfigType,
 	media service.IMediaService,
+	replies service.IStatusReplyService,
 ) ([]bothandler.IHandler, error) {
 	h, err := bothandler.NewMediaHandler(
 		cl,
 		cfg.BotConfig.ChannelID,
 		media,
+		replies,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create media handler: %w", err)
@@ -73,6 +80,10 @@ func ProvideBotHandlers(
 	return []bothandler.IHandler{h}, nil
 }
 
-func ProvideBot(cl tlg.IClient, handlers []bothandler.IHandler) (*bot.Bot, error) {
-	return bot.NewBot(cl, handlers)
+func ProvideBot(cl tlg.IClient, handlers []bothandler.IHandler, sub pipeline.ISubscriber, media service.IMediaService, replies service.IStatusReplyService) (*bot.Bot, error) {
+	n, err := bot.NewNotifier(cl, sub, media, replies)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bot notifier: %w", err)
+	}
+	return bot.NewBot(cl, handlers, n)
 }

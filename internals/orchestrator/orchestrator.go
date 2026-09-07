@@ -80,6 +80,7 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 	}
 	if done {
 		ll.Info("task already processed, skipping")
+		o.notifyIfTerminal(ctx, ll, mediaID)
 		return nil
 	}
 	step := domain.JobStep(msg.Step)
@@ -102,6 +103,9 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 			return err
 		}
 		ll.Info("media marked failed")
+		if err := o.publishNotify(ctx, ll, mediaID, domain.MediaStatusFailed); err != nil {
+			return err
+		}
 		return nil
 	}
 	job, err := o.jobs.GetByMediaID(ctx, mediaID)
@@ -112,30 +116,26 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 	if err := o.applyResult(ctx, ll, mediaID, step, msg); err != nil {
 		return err
 	}
-	if err := o.jobs.MarkTaskDone(ctx, mediaID, msg.TaskID, step); err != nil {
-		ll.Error("can not mark task done", zap.Error(err))
-		return err
-	}
-	ll.Debug("task marked done", zap.String("job_step", string(job.Step)), zap.Int("status_ver", job.StatusVer))
 	next, ok := service.NextJobStep(step)
 	if !ok {
 		ll.Warn("no next step defined")
 		return nil
 	}
 	ll.Info("transitioning job", zap.String("from", string(step)), zap.String("to", string(next)))
-	transitioned, err := o.jobs.Transition(ctx, mediaID, step, next, job.StatusVer)
-	if err != nil {
-		ll.Error("can not transition job", zap.Error(err), zap.String("from", string(step)), zap.String("to", string(next)))
-		return err
-	}
-	if !transitioned {
-		ll.Warn("job transition did not apply (stale version or concurrent update)", zap.Int("status_ver", job.StatusVer))
-	}
 	if next == domain.JobStepDone {
+		if err := o.publishNotify(ctx, ll, mediaID, domain.MediaStatusReady); err != nil {
+			return err
+		}
+		if err := o.finishStep(ctx, ll, mediaID, msg.TaskID, step, next, job.StatusVer); err != nil {
+			return err
+		}
 		ll.Info("pipeline complete")
 		return nil
 	}
 	if next != domain.JobStepDownload {
+		if err := o.finishStep(ctx, ll, mediaID, msg.TaskID, step, next, job.StatusVer); err != nil {
+			return err
+		}
 		ll.Info("no further work to publish", zap.String("next", string(next)))
 		return nil
 	}
@@ -148,13 +148,59 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 		ll.Info("media already stored on byse, skipping download",
 			zap.String("file_code", media.Byse.FileCode),
 		)
+		if err := o.publishNotify(ctx, ll, mediaID, domain.MediaStatusReady); err != nil {
+			return err
+		}
+		if err := o.finishStep(ctx, ll, mediaID, msg.TaskID, step, next, job.StatusVer); err != nil {
+			return err
+		}
 		return nil
+	}
+	if err := o.finishStep(ctx, ll, mediaID, msg.TaskID, step, next, job.StatusVer); err != nil {
+		return err
 	}
 	if err := service.PublishDownloadWork(ctx, o.pub, media, o.channelID); err != nil {
 		ll.Error("can not publish download work", zap.Error(err))
 		return err
 	}
 	ll.Info("published download work", zap.Int("message_id", media.MessageID), zap.Int64("file_id", media.Meta.FileID))
+	return nil
+}
+
+func (o *Orchestrator) finishStep(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, taskID string, from, to domain.JobStep, ver int) error {
+	if err := o.jobs.MarkTaskDone(ctx, mediaID, taskID, from); err != nil {
+		ll.Error("can not mark task done", zap.Error(err))
+		return err
+	}
+	transitioned, err := o.jobs.Transition(ctx, mediaID, from, to, ver)
+	if err != nil {
+		ll.Error("can not transition job", zap.Error(err), zap.String("from", string(from)), zap.String("to", string(to)))
+		return err
+	}
+	if !transitioned {
+		ll.Warn("job transition did not apply (stale version or concurrent update)", zap.Int("status_ver", ver))
+	}
+	return nil
+}
+
+func (o *Orchestrator) notifyIfTerminal(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID) {
+	media, err := o.media.Get(ctx, mediaID)
+	if err != nil {
+		ll.Error("can not get media for notify skip path", zap.Error(err))
+		return
+	}
+	switch media.Status {
+	case domain.MediaStatusReady, domain.MediaStatusFailed:
+		_ = o.publishNotify(ctx, ll, mediaID, media.Status)
+	}
+}
+
+func (o *Orchestrator) publishNotify(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, status domain.MediaStatus) error {
+	if err := service.PublishNotifyWork(ctx, o.pub, mediaID, status); err != nil {
+		ll.Error("can not publish notify work", zap.Error(err), zap.String("status", string(status)))
+		return err
+	}
+	ll.Info("published notify work", zap.String("status", string(status)))
 	return nil
 }
 
