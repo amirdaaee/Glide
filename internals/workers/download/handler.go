@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/amirdaaee/Glide/internals/domain"
 	"github.com/amirdaaee/Glide/internals/log"
@@ -19,10 +20,12 @@ import (
 )
 
 type Worker struct {
-	wPool   worker.IWorkerPool
-	byse    domain.IByseMediaRepository
-	tempDir string
-	ll      *zap.Logger
+	wPool            worker.IWorkerPool
+	byse             domain.IByseMediaRepository
+	tempDir          string
+	uploadRetries    int
+	uploadRetryDelay time.Duration
+	ll               *zap.Logger
 }
 
 var _ workers.IStepHandler = (*Worker)(nil)
@@ -92,9 +95,8 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 	if mime == "" {
 		mime = doc.MimeType
 	}
-	stored, size, err := w.uploadByse(ctx, tmpPath, payload.FileName, mime)
+	stored, size, err := w.uploadByseWithRetry(ctx, ll, tmpPath, payload.FileName, mime)
 	if err != nil {
-		ll.Error("can not upload to byse", zap.Error(err))
 		return nil, err
 	}
 	ll.Info("media stored on byse",
@@ -103,6 +105,47 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 		zap.Int64("size", size),
 	)
 	return downloadOK(res, stored, size)
+}
+
+func (w *Worker) uploadByseWithRetry(ctx context.Context, ll *zap.Logger, tmpPath, name, mimeType string) (*domain.ByseFile, int64, error) {
+	attempts := w.uploadRetries
+	if attempts < 1 {
+		attempts = 1
+	}
+	var lastErr error
+	for i := 1; i <= attempts; i++ {
+		stored, size, err := w.uploadByse(ctx, tmpPath, name, mimeType)
+		if err == nil {
+			return stored, size, nil
+		}
+		lastErr = err
+		ll.Error("can not upload to byse",
+			zap.Error(err),
+			zap.Int("upload_attempt", i),
+			zap.Int("upload_attempts", attempts),
+		)
+		if i == attempts {
+			break
+		}
+		if waitErr := waitRetry(ctx, w.uploadRetryDelay); waitErr != nil {
+			return nil, 0, waitErr
+		}
+	}
+	return nil, 0, lastErr
+}
+
+func waitRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(delay)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func (w *Worker) downloadDocument(ctx context.Context, api *tg.Client, doc *tg.Document, mediaID bson.ObjectID) (string, error) {
@@ -202,19 +245,28 @@ func downloadOK(res *pipeline.ResultMsg, byse *domain.ByseFile, size int64) (*pi
 	return res, nil
 }
 
-func New(wPool worker.IWorkerPool, byse domain.IByseMediaRepository, tempDir string) (*Worker, error) {
+func New(wPool worker.IWorkerPool, byse domain.IByseMediaRepository, tempDir string, uploadRetries int, uploadRetryDelay time.Duration) (*Worker, error) {
 	if wPool == nil {
 		return nil, fmt.Errorf("worker pool is nil")
 	}
 	if byse == nil {
 		return nil, fmt.Errorf("byse media repository is nil")
 	}
+	if uploadRetries < 1 {
+		uploadRetries = 1
+	}
 	ll := log.GetLogger(log.WORKERS).Named("download")
-	ll.Info("download worker created", zap.String("temp_dir", tempDir))
+	ll.Info("download worker created",
+		zap.String("temp_dir", tempDir),
+		zap.Int("upload_retries", uploadRetries),
+		zap.Duration("upload_retry_delay", uploadRetryDelay),
+	)
 	return &Worker{
-		wPool:   wPool,
-		byse:    byse,
-		tempDir: tempDir,
-		ll:      ll,
+		wPool:            wPool,
+		byse:             byse,
+		tempDir:          tempDir,
+		uploadRetries:    uploadRetries,
+		uploadRetryDelay: uploadRetryDelay,
+		ll:               ll,
 	}, nil
 }

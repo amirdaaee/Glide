@@ -51,9 +51,11 @@ type TelegramConfigType struct {
 }
 
 type WorkerConfigType struct {
-	Tokens        []string `env:"TOKENS,required"`
-	SessionPrefix string   `env:"SESSION_PREFIX" envDefault:"worker"`
-	TempDir       string   `env:"TEMP_DIR"`
+	Tokens           []string      `env:"TOKENS,required"`
+	SessionPrefix    string        `env:"SESSION_PREFIX" envDefault:"worker"`
+	TempDir          string        `env:"TEMP_DIR"`
+	UploadRetries    int           `env:"UPLOAD_RETRIES" envDefault:"3"`
+	UploadRetryDelay time.Duration `env:"UPLOAD_RETRY_DELAY" envDefault:"1s"`
 }
 
 type ByseConfigType struct {

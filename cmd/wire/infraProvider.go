@@ -47,7 +47,7 @@ func ProvideDownloadWorker(
 	byse domain.IByseMediaRepository,
 	cfg *config.ConfigType,
 ) (*download.Worker, error) {
-	return download.New(wPool, byse, cfg.WorkerConfig.TempDir)
+	return download.New(wPool, byse, cfg.WorkerConfig.TempDir, cfg.WorkerConfig.UploadRetries, cfg.WorkerConfig.UploadRetryDelay)
 }
 
 func ProvideMongoDB(cfg *config.ConfigType) (*mongox.Database, error) {
