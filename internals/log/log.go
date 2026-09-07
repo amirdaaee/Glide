@@ -8,23 +8,35 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// LogNS is a logger namespace (component name).
 type LogNS string
 
 const (
-	API          LogNS = "api"
-	CMD          LogNS = "cmd"
-	CONFIG       LogNS = "config"
-	LOG          LogNS = "log"
-	TELEGRAM     LogNS = "telegram"
-	BOT          LogNS = "bot"
-	PIPELINE     LogNS = "pipeline"
+	// API is the HTTP API logger namespace.
+	API LogNS = "api"
+	// CMD is the command/entrypoint logger namespace.
+	CMD LogNS = "cmd"
+	// CONFIG is the config loader logger namespace.
+	CONFIG LogNS = "config"
+	// LOG is the logging subsystem namespace.
+	LOG LogNS = "log"
+	// TELEGRAM is the Telegram client logger namespace.
+	TELEGRAM LogNS = "telegram"
+	// BOT is the bot logger namespace.
+	BOT LogNS = "bot"
+	// PIPELINE is the NATS pipeline logger namespace.
+	PIPELINE LogNS = "pipeline"
+	// ORCHESTRATOR is the orchestrator logger namespace.
 	ORCHESTRATOR LogNS = "orchestrator"
-	WORKERS      LogNS = "workers"
-	REPOSITORY   LogNS = "repository"
+	// WORKERS is the step-worker logger namespace.
+	WORKERS LogNS = "workers"
+	// REPOSITORY is the storage logger namespace.
+	REPOSITORY LogNS = "repository"
 )
 
 var loggerOnce sync.Once
 
+// GetLogger returns the global logger named for module.
 func GetLogger(module LogNS) *zap.Logger {
 	return zap.L().Named(string(module))
 }
@@ -34,6 +46,7 @@ func Named(module LogNS, component string) *zap.Logger {
 	return GetLogger(module).Named(component)
 }
 
+// Setup installs the global zap logger once.
 func Setup(dev bool, level string) {
 	loggerOnce.Do(func() {
 		var llCfg zap.Config
@@ -57,13 +70,17 @@ func Setup(dev bool, level string) {
 	})
 }
 
+// LogSinkEnum selects where NewLogger writes.
 type LogSinkEnum string
 
 const (
-	LogSyncEnumNone   LogSinkEnum = "none"
+	// LogSyncEnumNone discards log output.
+	LogSyncEnumNone LogSinkEnum = "none"
+	// LogSyncEnumStdout writes logs to stdout.
 	LogSyncEnumStdout LogSinkEnum = ""
 )
 
+// NewLogger builds a zap logger writing to sink at level.
 func NewLogger(sink LogSinkEnum, level zapcore.Level) *zap.Logger {
 	var sinker zapcore.WriteSyncer
 	ll := GetLogger(LOG)

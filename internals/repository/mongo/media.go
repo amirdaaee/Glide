@@ -13,12 +13,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
+// MediaRepository persists MediaFile documents in MongoDB.
 type MediaRepository struct {
 	coll *mongox.Collection[domain.MediaFile]
 }
 
 var _ domain.IMediaRepository = (*MediaRepository)(nil)
 
+// Create inserts a media file, assigning an ID if missing.
 func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) error {
 	if media.ID.IsZero() {
 		media.ID = bson.NewObjectID()
@@ -29,6 +31,7 @@ func (r *MediaRepository) Create(ctx context.Context, media *domain.MediaFile) e
 	return nil
 }
 
+// Get returns a media file by ID.
 func (r *MediaRepository) Get(ctx context.Context, id bson.ObjectID) (*domain.MediaFile, error) {
 	if id.IsZero() {
 		return nil, domain.ErrNotFound
@@ -43,6 +46,7 @@ func (r *MediaRepository) Get(ctx context.Context, id bson.ObjectID) (*domain.Me
 	return media, nil
 }
 
+// GetByFID returns a media file by Telegram file ID.
 func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.MediaFile, error) {
 	media, err := r.coll.Finder().Filter(query.Eq("Meta.FileID", fid)).FindOne(ctx)
 	if err != nil {
@@ -54,6 +58,7 @@ func (r *MediaRepository) GetByFID(ctx context.Context, fid int64) (*domain.Medi
 	return media, nil
 }
 
+// GetMany returns media files for the given IDs.
 func (r *MediaRepository) GetMany(ctx context.Context, ids []bson.ObjectID) ([]*domain.MediaFile, error) {
 	if len(ids) == 0 {
 		return []*domain.MediaFile{}, nil
@@ -65,6 +70,7 @@ func (r *MediaRepository) GetMany(ctx context.Context, ids []bson.ObjectID) ([]*
 	return media, nil
 }
 
+// Delete removes a media file by Telegram file ID.
 func (r *MediaRepository) Delete(ctx context.Context, fid int64) error {
 	if _, err := r.coll.Deleter().Filter(query.Eq("Meta.FileID", fid)).DeleteOne(ctx); err != nil {
 		return fmt.Errorf("can not delete media file: %w", err)
@@ -72,6 +78,7 @@ func (r *MediaRepository) Delete(ctx context.Context, fid int64) error {
 	return nil
 }
 
+// SetStatus updates the media processing status.
 func (r *MediaRepository) SetStatus(ctx context.Context, id bson.ObjectID, status domain.MediaStatus) error {
 	updateVal := update.NewBuilder().Set("Status", status).Build()
 	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
@@ -84,6 +91,7 @@ func (r *MediaRepository) SetStatus(ctx context.Context, id bson.ObjectID, statu
 	return nil
 }
 
+// SetStorageURL stores the public media URL.
 func (r *MediaRepository) SetStorageURL(ctx context.Context, id bson.ObjectID, url string) error {
 	updateVal := update.NewBuilder().Set("StorageURL", url).Build()
 	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
@@ -96,6 +104,7 @@ func (r *MediaRepository) SetStorageURL(ctx context.Context, id bson.ObjectID, u
 	return nil
 }
 
+// SetThumbnailURL stores the thumbnail URL.
 func (r *MediaRepository) SetThumbnailURL(ctx context.Context, id bson.ObjectID, url string) error {
 	updateVal := update.NewBuilder().Set("ThumbnailURL", url).Build()
 	res, err := r.coll.Updater().Filter(query.Id(id)).Updates(updateVal).UpdateOne(ctx)
@@ -108,6 +117,7 @@ func (r *MediaRepository) SetThumbnailURL(ctx context.Context, id bson.ObjectID,
 	return nil
 }
 
+// SetStored records the Byse file and marks media ready.
 func (r *MediaRepository) SetStored(ctx context.Context, id bson.ObjectID, byse *domain.ByseFile) error {
 	if byse == nil || byse.FileCode == "" {
 		return fmt.Errorf("byse file code is required")
@@ -128,6 +138,7 @@ func (r *MediaRepository) SetStored(ctx context.Context, id bson.ObjectID, byse 
 	return nil
 }
 
+// NewMediaRepository returns a MongoDB media repository.
 func NewMediaRepository(db *mongox.Database, name string) domain.IMediaRepository {
 	coll := mongox.NewCollection[domain.MediaFile](db, name)
 	return &MediaRepository{coll: coll}

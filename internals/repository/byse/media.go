@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Options configures the Byse HTTP client.
 type Options struct {
 	BaseURL       string
 	APIKey        string
@@ -25,6 +26,7 @@ type Options struct {
 	UploadTimeout time.Duration
 }
 
+// MediaRepository talks to the Byse file API.
 type MediaRepository struct {
 	apiKey     string
 	client     *req.Client
@@ -35,6 +37,7 @@ type MediaRepository struct {
 
 var _ domain.IByseMediaRepository = (*MediaRepository)(nil)
 
+// Create uploads a file to Byse and returns the new file code.
 func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reader, size int64, contentType string) (*domain.ByseFile, error) {
 	ll := r.ll.Named("Create").With(zap.String("name", name))
 	serverURL, err := r.uploadServer(ctx)
@@ -108,6 +111,7 @@ func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reade
 	return &domain.ByseFile{FileCode: f.Filecode, Name: filename}, nil
 }
 
+// Get returns Byse file info by file code.
 func (r *MediaRepository) Get(ctx context.Context, fileCode string) (*domain.ByseFile, error) {
 	if fileCode == "" {
 		return nil, fmt.Errorf("file code is empty")
@@ -131,6 +135,7 @@ func (r *MediaRepository) Get(ctx context.Context, fileCode string) (*domain.Bys
 	return f.toDomain(), nil
 }
 
+// List returns Byse files matching filter.
 func (r *MediaRepository) List(ctx context.Context, filter domain.ByseListFilter) ([]*domain.ByseFile, error) {
 	params := url.Values{}
 	if filter.FolderID != nil {
@@ -169,6 +174,7 @@ func (r *MediaRepository) List(ctx context.Context, filter domain.ByseListFilter
 	return out, nil
 }
 
+// SetFolder moves a Byse file into folderID.
 func (r *MediaRepository) SetFolder(ctx context.Context, fileCode string, folderID int) error {
 	if fileCode == "" {
 		return fmt.Errorf("file code is empty")
@@ -182,6 +188,7 @@ func (r *MediaRepository) SetFolder(ctx context.Context, fileCode string, folder
 	return nil
 }
 
+// Clone duplicates a Byse file and returns the new file.
 func (r *MediaRepository) Clone(ctx context.Context, fileCode string) (*domain.ByseFile, error) {
 	if fileCode == "" {
 		return nil, fmt.Errorf("file code is empty")
@@ -201,6 +208,7 @@ func (r *MediaRepository) Clone(ctx context.Context, fileCode string) (*domain.B
 	return &domain.ByseFile{FileCode: out.FileCode, Link: out.URL}, nil
 }
 
+// uploadServer returns the Byse upload endpoint URL.
 func (r *MediaRepository) uploadServer(ctx context.Context) (string, error) {
 	var server string
 	if err := r.get(ctx, "/upload/server", nil, &server); err != nil {
@@ -213,6 +221,7 @@ func (r *MediaRepository) uploadServer(ctx context.Context) (string, error) {
 	return server, nil
 }
 
+// sanitizeUploadName returns a safe filename for multipart upload.
 func sanitizeUploadName(name string) string {
 	name = strings.TrimSpace(name)
 	name = path.Base(name)
@@ -230,6 +239,7 @@ func sanitizeUploadName(name string) string {
 	return name
 }
 
+// sanitizeContentType returns a MIME type without parameters, or octet-stream.
 func sanitizeContentType(contentType string) string {
 	contentType = strings.TrimSpace(contentType)
 	if i := strings.IndexByte(contentType, ';'); i >= 0 {
@@ -241,6 +251,7 @@ func sanitizeContentType(contentType string) string {
 	return contentType
 }
 
+// formatHTTPStatus formats an unexpected HTTP status for errors.
 func formatHTTPStatus(status int, raw []byte) string {
 	body := strings.TrimSpace(string(raw))
 	lower := strings.ToLower(body)
@@ -257,6 +268,7 @@ func formatHTTPStatus(status int, raw []byte) string {
 	return fmt.Sprintf("unexpected http status %d (%s)", status, body)
 }
 
+// NewMediaRepository returns a Byse media repository.
 func NewMediaRepository(opts Options) (domain.IByseMediaRepository, error) {
 	if strings.TrimSpace(opts.APIKey) == "" {
 		return nil, fmt.Errorf("byse api key is empty")

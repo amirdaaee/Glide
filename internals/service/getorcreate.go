@@ -6,6 +6,7 @@ import (
 	"github.com/amirdaaee/Glide/internals/domain"
 )
 
+// getOrCreate returns an existing record from get, or creates candidate if not found.
 func getOrCreate[T any](
 	get func() (*T, error),
 	create func(*T) error,

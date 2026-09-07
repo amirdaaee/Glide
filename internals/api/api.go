@@ -13,11 +13,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// ApiServer is the HTTP API process.
 type ApiServer struct {
 	router *gin.Engine
 	config *config.ApiConfigType
 }
 
+// Start serves HTTP until ctx is cancelled, then shuts down.
 func (a *ApiServer) Start(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:    a.config.Listen,
@@ -45,6 +47,7 @@ func (a *ApiServer) Start(ctx context.Context) error {
 	}
 }
 
+// NewApiServer builds a Gin server with the given handlers.
 func NewApiServer(config *config.ApiConfigType, handlers []handler.IApiHandler) *ApiServer {
 	router := gin.Default()
 	router.Use(middleware.ErrorHandler(zap.L()))

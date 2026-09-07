@@ -50,6 +50,7 @@ func (h *mediaHandler) Register(d *tg.UpdateDispatcher) {
 	ll.Info("media handler registered")
 }
 
+// videoDocumentFromMessage returns the video document on msg, if any.
 func videoDocumentFromMessage(msg *tg.Message) (*tg.Document, bool) {
 	media, ok := msg.Media.(*tg.MessageMediaDocument)
 	if !ok || media.Document == nil {
@@ -70,6 +71,7 @@ func videoDocumentFromMessage(msg *tg.Message) (*tg.Document, bool) {
 	return nil, false
 }
 
+// isUnacceptableMedia reports whether msg is media the bot does not accept.
 func isUnacceptableMedia(msg *tg.Message) bool {
 	if msg == nil || msg.Media == nil {
 		return false
@@ -181,6 +183,7 @@ func (h *mediaHandler) handleMedia(ctx context.Context, api *tg.Client, entities
 	return nil
 }
 
+// failClientReply marks the status reply failed and drops the stored reply.
 func (h *mediaHandler) failClientReply(ctx context.Context, api *tg.Client, peer tg.InputPeerClass, replyID int, userID, mediaID bson.ObjectID) {
 	ll := h.ll.Named("failClientReply")
 	if err := EditText(ctx, api, peer, replyID, string(ClientStatusFailed)); err != nil {
@@ -193,6 +196,7 @@ func (h *mediaHandler) failClientReply(ctx context.Context, api *tg.Client, peer
 	}
 }
 
+// resolveMediaFile reuses an existing media record or forwards a new file to the channel.
 func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, origDoc *tg.Document) (*domain.MediaFile, error) {
 	ll := h.ll.Named("resolveMediaFile").With(
 		zap.Int("msg_id", msg.ID),
@@ -244,6 +248,7 @@ func (h *mediaHandler) resolveMediaFile(ctx context.Context, api *tg.Client, ent
 	return mediaFile, nil
 }
 
+// getChannelDoc fetches the document on a storage-channel message.
 func (h *mediaHandler) getChannelDoc(ctx context.Context, api *tg.Client, msgID int) (*tg.Document, error) {
 	channel, err := h.channel.Input(ctx, api)
 	if err != nil {
@@ -276,6 +281,7 @@ func (h *mediaHandler) getChannelDoc(ctx context.Context, api *tg.Client, msgID 
 	return nil, fmt.Errorf("message %d not found in channel", msgID)
 }
 
+// messagesFromResult unwraps a messages RPC result into a message list.
 func messagesFromResult(res tg.MessagesMessagesClass) ([]tg.MessageClass, error) {
 	switch msgs := res.(type) {
 	case *tg.MessagesChannelMessages:
@@ -289,6 +295,7 @@ func messagesFromResult(res tg.MessagesMessagesClass) ([]tg.MessageClass, error)
 	}
 }
 
+// documentFromMessage extracts the document media from msg.
 func documentFromMessage(msg *tg.Message) (*tg.Document, error) {
 	media, ok := msg.Media.(*tg.MessageMediaDocument)
 	if !ok || media.Document == nil {
@@ -301,6 +308,7 @@ func documentFromMessage(msg *tg.Message) (*tg.Document, error) {
 	return doc, nil
 }
 
+// buildMediaFileDoc builds a MediaFile from a channel document.
 func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int, fileID int64) (*domain.MediaFile, error) {
 	docMeta := domain.MediaFileMeta{}
 	for _, attr := range doc.Attributes {
@@ -324,6 +332,7 @@ func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int, fileID int
 	}, nil
 }
 
+// userFromTelegram maps a Telegram user to a domain user.
 func userFromTelegram(tgUser *tg.User) *domain.User {
 	return &domain.User{
 		TelegramID:   tgUser.ID,

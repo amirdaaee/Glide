@@ -12,14 +12,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const AUTH_TGID_KEY = "auth_tgid"
-const AUTH_TGNAME_KEY = "auth_tgname"
+const (
+	// AUTH_TGID_KEY is the Gin context key for the Telegram user ID.
+	AUTH_TGID_KEY = "auth_tgid"
+	// AUTH_TGNAME_KEY is the Gin context key for the Telegram display name.
+	AUTH_TGNAME_KEY = "auth_tgname"
+)
 
 const telegramOIDCIssuer = "https://oauth.telegram.org"
 
 // flexInt64 unmarshals Telegram claim IDs that may be JSON numbers or strings.
 type flexInt64 int64
 
+// UnmarshalJSON accepts a JSON number or string Telegram ID.
 func (v *flexInt64) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 || string(b) == "null" {
 		*v = 0
@@ -45,15 +50,18 @@ func (v *flexInt64) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// TgUserData is the Telegram user claims from an ID token.
 type TgUserData struct {
 	TgID   flexInt64 `json:"id"`
 	TgName string    `json:"name"`
 }
 
+// TgAuthenticationMiddleware verifies Telegram OIDC bearer tokens.
 type TgAuthenticationMiddleware struct {
 	verifier *oidc.IDTokenVerifier
 }
 
+// MiddlewareFunc returns Gin middleware that requires a valid Telegram ID token.
 func (m *TgAuthenticationMiddleware) MiddlewareFunc() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -87,10 +95,12 @@ func (m *TgAuthenticationMiddleware) MiddlewareFunc() gin.HandlerFunc {
 	}
 }
 
+// JWTAuthenticationMiddlewareConfig configures Telegram OIDC token verification.
 type JWTAuthenticationMiddlewareConfig struct {
 	ClientID string
 }
 
+// NewJWTAuthenticationMiddleware returns Telegram OIDC auth middleware.
 func NewJWTAuthenticationMiddleware(cfg *JWTAuthenticationMiddlewareConfig) (*TgAuthenticationMiddleware, error) {
 	provider, err := oidc.NewProvider(context.Background(), telegramOIDCIssuer)
 	if err != nil {
@@ -100,10 +110,12 @@ func NewJWTAuthenticationMiddleware(cfg *JWTAuthenticationMiddlewareConfig) (*Tg
 	return &TgAuthenticationMiddleware{verifier: verifier}, nil
 }
 
+// GetTgIDFromContext returns the authenticated Telegram user ID, or 0.
 func GetTgIDFromContext(c *gin.Context) int64 {
 	return c.GetInt64(AUTH_TGID_KEY)
 }
 
+// GetTgNameFromContext returns the authenticated Telegram display name.
 func GetTgNameFromContext(c *gin.Context) string {
 	return c.GetString(AUTH_TGNAME_KEY)
 }

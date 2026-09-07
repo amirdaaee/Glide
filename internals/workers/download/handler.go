@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Worker downloads a channel document and uploads it to Byse.
 type Worker struct {
 	wPool            worker.IWorkerPool
 	byse             domain.IByseMediaRepository
@@ -30,6 +31,7 @@ type Worker struct {
 
 var _ workers.IStepHandler = (*Worker)(nil)
 
+// Handle downloads the file from Telegram and stores it on Byse.
 func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.ResultMsg, error) {
 	ll := w.ll.Named("Handle").With(
 		zap.String("task_id", msg.TaskID),
@@ -107,6 +109,7 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 	return downloadOK(res, stored, size)
 }
 
+// uploadByseWithRetry uploads the temp file to Byse, retrying on failure.
 func (w *Worker) uploadByseWithRetry(ctx context.Context, ll *zap.Logger, tmpPath, name, mimeType string) (*domain.ByseFile, int64, error) {
 	attempts := w.uploadRetries
 	if attempts < 1 {
@@ -134,6 +137,7 @@ func (w *Worker) uploadByseWithRetry(ctx context.Context, ll *zap.Logger, tmpPat
 	return nil, 0, lastErr
 }
 
+// waitRetry waits delay or until ctx is cancelled.
 func waitRetry(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		return ctx.Err()
@@ -148,6 +152,7 @@ func waitRetry(ctx context.Context, delay time.Duration) error {
 	}
 }
 
+// downloadDocument streams a Telegram document to a temp file.
 func (w *Worker) downloadDocument(ctx context.Context, api *tg.Client, doc *tg.Document, mediaID bson.ObjectID) (string, error) {
 	ll := w.ll.Named("downloadDocument").With(zap.String("media_id", mediaID.Hex()))
 	if api == nil {
@@ -192,6 +197,7 @@ func (w *Worker) downloadDocument(ctx context.Context, api *tg.Client, doc *tg.D
 	return tmpPath, nil
 }
 
+// uploadByse uploads a local file to Byse and refreshes file info.
 func (w *Worker) uploadByse(ctx context.Context, tmpPath, name, mimeType string) (*domain.ByseFile, int64, error) {
 	ll := w.ll.Named("uploadByse").With(zap.String("path", tmpPath))
 	body, err := os.Open(filepath.Clean(tmpPath))
@@ -235,6 +241,7 @@ func (w *Worker) uploadByse(ctx context.Context, tmpPath, name, mimeType string)
 	return stored, stat.Size(), nil
 }
 
+// downloadOK marks res successful and attaches DownloadOutput.
 func downloadOK(res *pipeline.ResultMsg, byse *domain.ByseFile, size int64) (*pipeline.ResultMsg, error) {
 	raw, err := json.Marshal(pipeline.DownloadOutput{Byse: byse, Size: size})
 	if err != nil {
@@ -245,6 +252,7 @@ func downloadOK(res *pipeline.ResultMsg, byse *domain.ByseFile, size int64) (*pi
 	return res, nil
 }
 
+// New returns a download step worker.
 func New(wPool worker.IWorkerPool, byse domain.IByseMediaRepository, tempDir string, uploadRetries int, uploadRetryDelay time.Duration) (*Worker, error) {
 	if wPool == nil {
 		return nil, fmt.Errorf("worker pool is nil")

@@ -9,6 +9,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// SessionConfig holds Telegram app credentials, session dir, and optional SOCKS proxy.
 type SessionConfig struct {
 	SocksProxy string
 	SessionDir string
@@ -16,6 +17,7 @@ type SessionConfig struct {
 	AppHash    string
 }
 
+// getSocksDialer returns a DC resolver for SocksProxy, or nil if unset.
 func (sessCfg *SessionConfig) getSocksDialer() (*dcs.Resolver, error) {
 	ll := log.Named(log.TELEGRAM, "SessionConfig")
 	proxyUriStr := sessCfg.SocksProxy

@@ -14,10 +14,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// IOrchestrator consumes pipeline results and advances media jobs.
 type IOrchestrator interface {
+	// Start subscribes to ingest and download results until ctx is cancelled.
 	Start(ctx context.Context) error
 }
 
+// Orchestrator implements IOrchestrator.
 type Orchestrator struct {
 	sub       pipeline.ISubscriber
 	pub       pipeline.IPublisher
@@ -29,6 +32,7 @@ type Orchestrator struct {
 
 var _ IOrchestrator = (*Orchestrator)(nil)
 
+// Start subscribes to ingest and download results until ctx is cancelled.
 func (o *Orchestrator) Start(ctx context.Context) error {
 	ll := o.ll.Named("Start")
 	ll.Info("starting orchestrator")
@@ -59,6 +63,7 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	return err
 }
 
+// handleResult applies a step result, then publishes the next work item.
 func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg) error {
 	ll := o.ll.Named("handleResult").With(
 		zap.String("task_id", msg.TaskID),
@@ -167,6 +172,7 @@ func (o *Orchestrator) handleResult(ctx context.Context, msg pipeline.ResultMsg)
 	return nil
 }
 
+// finishStep records the completed task and transitions the job step.
 func (o *Orchestrator) finishStep(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, taskID string, from, to domain.JobStep, ver int) error {
 	if err := o.jobs.MarkTaskDone(ctx, mediaID, taskID, from); err != nil {
 		ll.Error("can not mark task done", zap.Error(err))
@@ -183,6 +189,7 @@ func (o *Orchestrator) finishStep(ctx context.Context, ll *zap.Logger, mediaID b
 	return nil
 }
 
+// notifyIfTerminal republishes notify work when media is already ready or failed.
 func (o *Orchestrator) notifyIfTerminal(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID) {
 	media, err := o.media.Get(ctx, mediaID)
 	if err != nil {
@@ -195,6 +202,7 @@ func (o *Orchestrator) notifyIfTerminal(ctx context.Context, ll *zap.Logger, med
 	}
 }
 
+// publishNotify publishes notify work for a terminal media status.
 func (o *Orchestrator) publishNotify(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, status domain.MediaStatus) error {
 	if err := service.PublishNotifyWork(ctx, o.pub, mediaID, status); err != nil {
 		ll.Error("can not publish notify work", zap.Error(err), zap.String("status", string(status)))
@@ -204,6 +212,7 @@ func (o *Orchestrator) publishNotify(ctx context.Context, ll *zap.Logger, mediaI
 	return nil
 }
 
+// applyResult stores ingest or download output onto the media record.
 func (o *Orchestrator) applyResult(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, step domain.JobStep, msg pipeline.ResultMsg) error {
 	switch step {
 	case domain.JobStepIngest:
@@ -241,6 +250,7 @@ func (o *Orchestrator) applyResult(ctx context.Context, ll *zap.Logger, mediaID 
 	}
 }
 
+// New returns an Orchestrator that consumes results and publishes follow-up work.
 func New(
 	sub pipeline.ISubscriber,
 	pub pipeline.IPublisher,

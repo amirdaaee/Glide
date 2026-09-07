@@ -10,8 +10,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var configInitLock *sync.Once = &sync.Once{}
-var configInstance *ConfigType
+var (
+	configInitLock = &sync.Once{}
+	configInstance *ConfigType
+)
 
 // Config returns a singleton instance of ConfigType, loading environment variables and .env file if present.
 func Config() *ConfigType {

@@ -8,20 +8,28 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+// IUserService is the application API for Telegram users.
 type IUserService interface {
+	// GetByTelegramID returns the user for a Telegram account ID.
 	GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error)
+	// UpsertByTelegramID creates the user if missing, then updates profile fields.
 	UpsertByTelegramID(ctx context.Context, user *domain.User) error
+	// GetOrCreate returns an existing user by Telegram ID, or creates user.
 	GetOrCreate(ctx context.Context, user *domain.User) (*domain.User, error)
+	// AttachMedia adds mediaID to the user's media list.
 	AttachMedia(ctx context.Context, userID, mediaID bson.ObjectID) error
+	// DetachMedia removes mediaID from the user's media list.
 	DetachMedia(ctx context.Context, userID, mediaID bson.ObjectID) error
 }
 
+// UserService implements IUserService.
 type UserService struct {
 	users domain.IUserRepository
 }
 
 var _ IUserService = (*UserService)(nil)
 
+// GetByTelegramID returns the user for a Telegram account ID.
 func (s *UserService) GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error) {
 	user, err := s.users.GetByTelegramID(ctx, telegramID)
 	if err != nil {
@@ -30,6 +38,7 @@ func (s *UserService) GetByTelegramID(ctx context.Context, telegramID int64) (*d
 	return user, nil
 }
 
+// UpsertByTelegramID creates the user if missing, then updates profile fields.
 func (s *UserService) UpsertByTelegramID(ctx context.Context, user *domain.User) error {
 	got, err := s.GetOrCreate(ctx, user)
 	if err != nil {
@@ -50,6 +59,7 @@ func (s *UserService) UpsertByTelegramID(ctx context.Context, user *domain.User)
 	return nil
 }
 
+// GetOrCreate returns an existing user by Telegram ID, or creates user.
 func (s *UserService) GetOrCreate(ctx context.Context, user *domain.User) (*domain.User, error) {
 	return getOrCreate(
 		func() (*domain.User, error) {
@@ -72,6 +82,7 @@ func (s *UserService) GetOrCreate(ctx context.Context, user *domain.User) (*doma
 	)
 }
 
+// AttachMedia adds mediaID to the user's media list.
 func (s *UserService) AttachMedia(ctx context.Context, userID, mediaID bson.ObjectID) error {
 	if err := s.users.AddMedia(ctx, userID, mediaID); err != nil {
 		return fmt.Errorf("can not add media to user: %w", err)
@@ -79,6 +90,7 @@ func (s *UserService) AttachMedia(ctx context.Context, userID, mediaID bson.Obje
 	return nil
 }
 
+// DetachMedia removes mediaID from the user's media list.
 func (s *UserService) DetachMedia(ctx context.Context, userID, mediaID bson.ObjectID) error {
 	if err := s.users.DeleteMedia(ctx, userID, mediaID); err != nil {
 		return fmt.Errorf("can not delete media from user: %w", err)
@@ -86,6 +98,7 @@ func (s *UserService) DetachMedia(ctx context.Context, userID, mediaID bson.Obje
 	return nil
 }
 
+// NewUserService returns an IUserService.
 func NewUserService(users domain.IUserRepository) IUserService {
 	return &UserService{users: users}
 }

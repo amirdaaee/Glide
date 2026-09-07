@@ -29,9 +29,11 @@ type IClient interface {
 	StartClient(ctx context.Context) error
 	// API returns the MTProto API client, or nil before ready and after the run exits.
 	API() *tg.Client
+	// SetUpdateHandler installs the update handler used after the client is ready.
 	SetUpdateHandler(h telegram.UpdateHandler)
 }
 
+// client is the gotd Telegram client wrapper.
 type client struct {
 	sessCfg       *SessionConfig
 	tg            *telegram.Client
@@ -48,20 +50,24 @@ type client struct {
 
 var _ IClient = (*client)(nil)
 
+// SetUpdateHandler installs the update handler used after the client is ready.
 func (tc *client) SetUpdateHandler(h telegram.UpdateHandler) {
 	tc.handler.set(h)
 }
 
+// API returns the MTProto client, or nil before ready and after the run exits.
 func (tc *client) API() *tg.Client {
 	tc.apiMu.RLock()
 	defer tc.apiMu.RUnlock()
 	return tc.api
 }
 
+// RunBot authenticates as a bot and blocks until ctx is cancelled.
 func (tc *client) RunBot(ctx context.Context) error {
 	return tc.doRun(ctx)
 }
 
+// StartClient runs the client in the background and returns once authenticated.
 func (tc *client) StartClient(ctx context.Context) error {
 	go func() {
 		if err := tc.doRun(ctx); err != nil && ctx.Err() == nil {
@@ -76,12 +82,14 @@ func (tc *client) StartClient(ctx context.Context) error {
 	}
 }
 
+// setAPI stores the ready MTProto client.
 func (tc *client) setAPI(api *tg.Client) {
 	tc.apiMu.Lock()
 	tc.api = api
 	tc.apiMu.Unlock()
 }
 
+// doRun starts the gotd session; the instance cannot be started twice.
 func (tc *client) doRun(ctx context.Context) error {
 	tc.runMu.Lock()
 	if tc.isRunning {
@@ -103,6 +111,8 @@ func (tc *client) doRun(ctx context.Context) error {
 		return ctx.Err()
 	})
 }
+
+// authorize logs in as a bot if the session is not already authorized.
 func (tc *client) authorize(ctx context.Context) error {
 	ll := tc.ll.Named("Authorize")
 	status, err := tc.tg.Auth().Status(ctx)
@@ -119,6 +129,8 @@ func (tc *client) authorize(ctx context.Context) error {
 	}
 	return nil
 }
+
+// buildTelegramClient constructs a gotd client with session file and middlewares.
 func (tc *client) buildTelegramClient() (*telegram.Client, error) {
 	sessCfg := tc.sessCfg
 	if err := os.MkdirAll(sessCfg.SessionDir, 0o700); err != nil {
@@ -142,6 +154,7 @@ func (tc *client) buildTelegramClient() (*telegram.Client, error) {
 	return telegram.NewClient(sessCfg.AppID, sessCfg.AppHash, opts), nil
 }
 
+// getMiddlewares returns flood-wait and rate-limit middlewares.
 func (tc *client) getMiddlewares() []telegram.Middleware {
 	return []telegram.Middleware{
 		floodwait.NewSimpleWaiter().WithMaxRetries(10).WithMaxWait(5 * time.Second),
@@ -149,6 +162,7 @@ func (tc *client) getMiddlewares() []telegram.Middleware {
 	}
 }
 
+// NewTgClient returns a single-use Telegram client for token.
 func NewTgClient(sessCfg *SessionConfig, token, sessionPrefix string) (IClient, error) {
 	if sessionPrefix == "" {
 		sessionPrefix = "worker"
@@ -170,17 +184,21 @@ func NewTgClient(sessCfg *SessionConfig, token, sessionPrefix string) (IClient, 
 }
 
 // ===
+// clientReady signals when the Telegram client has authenticated (or failed).
 type clientReady struct {
 	ready    chan struct{}
 	readyErr error
 	readyMu  sync.RWMutex
 }
 
+// ReadyErr returns the authorization error, if any.
 func (cr *clientReady) ReadyErr() error {
 	cr.readyMu.RLock()
 	defer cr.readyMu.RUnlock()
 	return cr.readyErr
 }
+
+// notifyReady records err and closes the ready channel once.
 func (cr *clientReady) notifyReady(err error) {
 	cr.readyMu.Lock()
 	cr.readyErr = err

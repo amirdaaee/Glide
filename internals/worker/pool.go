@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Pool round-robins a set of Telegram workers.
 type Pool struct {
 	workers []*Worker
 	next    atomic.Uint64
@@ -17,6 +18,7 @@ type Pool struct {
 
 var _ IWorkerPool = (*Pool)(nil)
 
+// GetNextWorker returns the next worker in round-robin order.
 func (p *Pool) GetNextWorker() IWorker {
 	if len(p.workers) == 0 {
 		return nil
@@ -25,6 +27,7 @@ func (p *Pool) GetNextWorker() IWorker {
 	return p.workers[i%uint64(len(p.workers))]
 }
 
+// Start authenticates every worker in the pool.
 func (p *Pool) Start(ctx context.Context) error {
 	ll := p.ll.Named("Start")
 	ll.Info("starting worker pool", zap.Int("size", len(p.workers)))
@@ -39,6 +42,7 @@ func (p *Pool) Start(ctx context.Context) error {
 	return nil
 }
 
+// NewPool returns a Pool over workers.
 func NewPool(workers []*Worker) *Pool {
 	ll := log.GetLogger(log.TELEGRAM).Named("workerPool")
 	ll.Info("worker pool created", zap.Int("size", len(workers)))

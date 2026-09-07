@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Notifier edits pending Telegram status replies when media reaches a terminal status.
 type Notifier struct {
 	cl      tlg.IClient
 	sub     pipeline.ISubscriber
@@ -24,6 +25,7 @@ type Notifier struct {
 	ll      *zap.Logger
 }
 
+// Start subscribes to notify work until ctx is cancelled.
 func (n *Notifier) Start(ctx context.Context) error {
 	ll := n.ll.Named("Start")
 	subject := pipeline.WorkSubject(domain.JobStepNotify)
@@ -37,6 +39,7 @@ func (n *Notifier) Start(ctx context.Context) error {
 	return err
 }
 
+// handle edits stored status replies for a terminal media status.
 func (n *Notifier) handle(ctx context.Context, msg pipeline.WorkMsg) error {
 	ll := n.ll.Named("handle").With(
 		zap.String("task_id", msg.TaskID),
@@ -95,6 +98,7 @@ func (n *Notifier) handle(ctx context.Context, msg pipeline.WorkMsg) error {
 	return editErr
 }
 
+// notifyStatus returns the terminal status from the payload, or from stored media.
 func (n *Notifier) notifyStatus(ctx context.Context, ll *zap.Logger, mediaID bson.ObjectID, msg pipeline.WorkMsg) (domain.MediaStatus, error) {
 	var payload pipeline.NotifyPayload
 	if len(msg.Payload) > 0 {
@@ -113,6 +117,7 @@ func (n *Notifier) notifyStatus(ctx context.Context, ll *zap.Logger, mediaID bso
 	return media.Status, nil
 }
 
+// NewNotifier returns a Notifier that consumes notify work.
 func NewNotifier(cl tlg.IClient, sub pipeline.ISubscriber, media service.IMediaService, replies service.IStatusReplyService) (*Notifier, error) {
 	if cl == nil {
 		return nil, fmt.Errorf("telegram client is nil")

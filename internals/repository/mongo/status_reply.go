@@ -14,12 +14,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// StatusReplyRepository persists MediaStatusReply documents in MongoDB.
 type StatusReplyRepository struct {
 	coll *mongox.Collection[domain.MediaStatusReply]
 }
 
 var _ domain.IMediaStatusReplyRepository = (*StatusReplyRepository)(nil)
 
+// Upsert creates or replaces the pending status reply for a media/user pair.
 func (r *StatusReplyRepository) Upsert(ctx context.Context, reply *domain.MediaStatusReply) error {
 	if reply == nil {
 		return fmt.Errorf("status reply is nil")
@@ -45,6 +47,7 @@ func (r *StatusReplyRepository) Upsert(ctx context.Context, reply *domain.MediaS
 	return nil
 }
 
+// ListByMediaID returns pending status replies for a media file.
 func (r *StatusReplyRepository) ListByMediaID(ctx context.Context, mediaID bson.ObjectID) ([]*domain.MediaStatusReply, error) {
 	if mediaID.IsZero() {
 		return nil, fmt.Errorf("media id is required")
@@ -59,6 +62,7 @@ func (r *StatusReplyRepository) ListByMediaID(ctx context.Context, mediaID bson.
 	return replies, nil
 }
 
+// DeleteByMediaID removes all pending status replies for a media file.
 func (r *StatusReplyRepository) DeleteByMediaID(ctx context.Context, mediaID bson.ObjectID) error {
 	if mediaID.IsZero() {
 		return fmt.Errorf("media id is required")
@@ -69,6 +73,7 @@ func (r *StatusReplyRepository) DeleteByMediaID(ctx context.Context, mediaID bso
 	return nil
 }
 
+// Delete removes the pending status reply for a media/user pair.
 func (r *StatusReplyRepository) Delete(ctx context.Context, mediaID, userID bson.ObjectID) error {
 	if mediaID.IsZero() || userID.IsZero() {
 		return fmt.Errorf("media id and user id are required")
@@ -83,6 +88,7 @@ func (r *StatusReplyRepository) Delete(ctx context.Context, mediaID, userID bson
 	return nil
 }
 
+// ensureIndexes creates unique (MediaID, UserID) and MediaID indexes.
 func (r *StatusReplyRepository) ensureIndexes(ctx context.Context) error {
 	_, err := r.coll.Collection().Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{
@@ -102,6 +108,7 @@ func (r *StatusReplyRepository) ensureIndexes(ctx context.Context) error {
 	return nil
 }
 
+// NewStatusReplyRepository returns a MongoDB status-reply repository.
 func NewStatusReplyRepository(db *mongox.Database, name string) (domain.IMediaStatusReplyRepository, error) {
 	r := &StatusReplyRepository{
 		coll: mongox.NewCollection[domain.MediaStatusReply](db, name),

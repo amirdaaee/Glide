@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// ErrorHandler writes HttpError responses and logs unexpected errors.
 func ErrorHandler(errLogger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()

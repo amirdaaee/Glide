@@ -13,6 +13,7 @@ import (
 	"github.com/imroc/req/v3"
 )
 
+// apiEnvelope is the standard Byse JSON response wrapper.
 type apiEnvelope struct {
 	Msg        string          `json:"msg"`
 	ServerTime string          `json:"server_time"`
@@ -20,6 +21,7 @@ type apiEnvelope struct {
 	Result     json.RawMessage `json:"result"`
 }
 
+// fileDTO is a Byse file object from list/info responses.
 type fileDTO struct {
 	Status    int     `json:"status"`
 	FileCode  string  `json:"file_code"`
@@ -37,6 +39,7 @@ type fileDTO struct {
 	URL       string  `json:"url"`
 }
 
+// code returns file_code or filecode.
 func (d fileDTO) code() string {
 	if d.FileCode != "" {
 		return d.FileCode
@@ -44,6 +47,7 @@ func (d fileDTO) code() string {
 	return d.Filecode
 }
 
+// displayName returns name or title.
 func (d fileDTO) displayName() string {
 	if d.Name != "" {
 		return d.Name
@@ -51,6 +55,7 @@ func (d fileDTO) displayName() string {
 	return d.Title
 }
 
+// toDomain maps a Byse file DTO onto domain.ByseFile.
 func (d fileDTO) toDomain() *domain.ByseFile {
 	link := d.Link
 	if link == "" {
@@ -70,8 +75,10 @@ func (d fileDTO) toDomain() *domain.ByseFile {
 	}
 }
 
+// flexInt unmarshals JSON numbers or numeric strings as int.
 type flexInt int
 
+// UnmarshalJSON accepts a JSON number or numeric string.
 func (v *flexInt) UnmarshalJSON(b []byte) error {
 	s := strings.TrimSpace(string(b))
 	if s == "" || s == "null" {
@@ -103,6 +110,7 @@ func (v *flexInt) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// get performs a Byse GET and decodes the result envelope into dest.
 func (r *MediaRepository) get(ctx context.Context, path string, params url.Values, dest any) error {
 	httpReq := r.client.R().SetContext(ctx)
 	if encoded := params.Encode(); encoded != "" {
@@ -115,6 +123,7 @@ func (r *MediaRepository) get(ctx context.Context, path string, params url.Value
 	return decodeEnvelope(path, resp, dest)
 }
 
+// decodeEnvelope unmarshals a Byse HTTP response into dest.
 func decodeEnvelope(path string, resp *req.Response, dest any) error {
 	status := resp.GetStatusCode()
 	if status == http.StatusNotFound {

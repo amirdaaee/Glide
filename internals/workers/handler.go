@@ -10,10 +10,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// IStepHandler processes one pipeline work message.
 type IStepHandler interface {
+	// Handle processes one pipeline work message and returns its result.
 	Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.ResultMsg, error)
 }
 
+// Run consumes work for step, calls h, and publishes results until ctx is cancelled.
 func Run(ctx context.Context, sub pipeline.ISubscriber, pub pipeline.IPublisher, step domain.JobStep, h IStepHandler) error {
 	ll := log.GetLogger(log.WORKERS).Named("Run").With(zap.String("step", string(step)))
 	if h == nil {

@@ -10,16 +10,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// IWorker fetches documents from the storage channel via a Telegram client.
 type IWorker interface {
+	// GetDoc fetches the document on a storage-channel message.
 	GetDoc(ctx context.Context, msgID int) (*tg.Document, error)
+	// API returns the worker's MTProto client, or nil if not ready.
 	API() *tg.Client
 }
 
+// IWorkerPool round-robins Telegram workers.
 type IWorkerPool interface {
+	// GetNextWorker returns the next worker in round-robin order.
 	GetNextWorker() IWorker
+	// Start authenticates every worker in the pool.
 	Start(ctx context.Context) error
 }
 
+// Worker is a Telegram client bound to a storage channel.
 type Worker struct {
 	cl      tlg.IClient
 	channel *tlg.Channel
@@ -28,10 +35,12 @@ type Worker struct {
 
 var _ IWorker = (*Worker)(nil)
 
+// API returns the worker's MTProto client, or nil if not ready.
 func (w *Worker) API() *tg.Client {
 	return w.cl.API()
 }
 
+// Start authenticates the client and resolves the storage channel.
 func (w *Worker) Start(ctx context.Context) error {
 	ll := w.ll.Named("Start")
 	ll.Info("starting telegram worker")
@@ -52,6 +61,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	return nil
 }
 
+// GetDoc fetches the document on a storage-channel message.
 func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 	ll := w.ll.Named("GetDoc").With(zap.Int("msg_id", msgID))
 	ll.Debug("fetching channel document")
@@ -97,6 +107,7 @@ func (w *Worker) GetDoc(ctx context.Context, msgID int) (*tg.Document, error) {
 	return nil, fmt.Errorf("message %d not found in channel", msgID)
 }
 
+// NewWorker returns a Worker for channelID.
 func NewWorker(cl tlg.IClient, channelID int64) *Worker {
 	return &Worker{
 		cl:      cl,
@@ -105,6 +116,7 @@ func NewWorker(cl tlg.IClient, channelID int64) *Worker {
 	}
 }
 
+// messagesFromResult unwraps a messages RPC result into a message list.
 func messagesFromResult(res tg.MessagesMessagesClass) ([]tg.MessageClass, error) {
 	switch msgs := res.(type) {
 	case *tg.MessagesChannelMessages:
@@ -118,6 +130,7 @@ func messagesFromResult(res tg.MessagesMessagesClass) ([]tg.MessageClass, error)
 	}
 }
 
+// documentFromMessage extracts the document media from msg.
 func documentFromMessage(msg *tg.Message) (*tg.Document, error) {
 	media, ok := msg.Media.(*tg.MessageMediaDocument)
 	if !ok || media.Document == nil {

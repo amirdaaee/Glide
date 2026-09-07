@@ -13,10 +13,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// IIngestDispatcher starts ingest-pipeline work for a media file.
 type IIngestDispatcher interface {
+	// Dispatch publishes ingest or download work for media that is not yet stored.
 	Dispatch(ctx context.Context, media *domain.MediaFile) error
 }
 
+// IngestDispatcher implements IIngestDispatcher.
 type IngestDispatcher struct {
 	jobs      IJobService
 	pub       pipeline.IPublisher
@@ -26,6 +29,7 @@ type IngestDispatcher struct {
 
 var _ IIngestDispatcher = (*IngestDispatcher)(nil)
 
+// Dispatch publishes ingest or download work for media that is not yet stored.
 func (d *IngestDispatcher) Dispatch(ctx context.Context, media *domain.MediaFile) error {
 	ll := d.ll.Named("Dispatch")
 	if media == nil || media.ID.IsZero() {
@@ -93,6 +97,7 @@ func (d *IngestDispatcher) Dispatch(ctx context.Context, media *domain.MediaFile
 	return nil
 }
 
+// dispatchDownload publishes download work, creating or advancing the job as needed.
 func (d *IngestDispatcher) dispatchDownload(ctx context.Context, media *domain.MediaFile) error {
 	ll := d.ll.Named("dispatchDownload").With(zap.String("media_id", media.ID.Hex()))
 	job, err := d.jobs.GetByMediaID(ctx, media.ID)
@@ -133,6 +138,7 @@ func (d *IngestDispatcher) dispatchDownload(ctx context.Context, media *domain.M
 	return nil
 }
 
+// PublishDownloadWork publishes a download work message for media.
 func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *domain.MediaFile, channelID int64) error {
 	if pub == nil {
 		return fmt.Errorf("publisher is nil")
@@ -159,6 +165,7 @@ func PublishDownloadWork(ctx context.Context, pub pipeline.IPublisher, media *do
 	})
 }
 
+// PublishNotifyWork publishes a notify work message for a terminal media status.
 func PublishNotifyWork(ctx context.Context, pub pipeline.IPublisher, mediaID bson.ObjectID, status domain.MediaStatus) error {
 	if pub == nil {
 		return fmt.Errorf("publisher is nil")
@@ -179,6 +186,7 @@ func PublishNotifyWork(ctx context.Context, pub pipeline.IPublisher, mediaID bso
 	})
 }
 
+// NewIngestDispatcher returns an IIngestDispatcher that publishes to channelID.
 func NewIngestDispatcher(jobs IJobService, pub pipeline.IPublisher, channelID int64) IIngestDispatcher {
 	return &IngestDispatcher{
 		jobs:      jobs,

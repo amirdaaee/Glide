@@ -2,10 +2,12 @@ package config
 
 import "time"
 
+// ApiConfigType is HTTP listen configuration.
 type ApiConfigType struct {
 	Listen string `env:"LISTEN" envDefault:":8080"`
 }
 
+// AuthConfigType is Telegram OIDC client configuration.
 type AuthConfigType struct {
 	ClientID      string `env:"CLIENT_ID,required"`
 	ClientSecret  string `env:"CLIENT_SECRET,required"`
@@ -13,6 +15,7 @@ type AuthConfigType struct {
 	SecureCookies bool   `env:"SECURE_COOKIES" envDefault:"true"`
 }
 
+// MongoConfigType is MongoDB connection and collection names.
 type MongoConfigType struct {
 	URI                      string        `env:"URI,required"`
 	DB                       string        `env:"DB,required"`
@@ -24,6 +27,7 @@ type MongoConfigType struct {
 	PingTimeout              time.Duration `env:"PING_TIMEOUT" envDefault:"5s"`
 }
 
+// NatsConfigType is NATS JetStream connection settings.
 type NatsConfigType struct {
 	URL        string        `env:"URL" envDefault:"nats://127.0.0.1:4222"`
 	Stream     string        `env:"STREAM" envDefault:"GLIDE_MEDIA"`
@@ -31,6 +35,7 @@ type NatsConfigType struct {
 	MaxDeliver int           `env:"MAX_DELIVER" envDefault:"5"`
 }
 
+// MinioConfigType is MinIO object-store credentials.
 type MinioConfigType struct {
 	Endpoint        string `env:"ENDPOINT" envDefault:"127.0.0.1:9000"`
 	AccessKeyID     string `env:"ACCESS_KEY" envDefault:"minioadmin"`
@@ -39,11 +44,13 @@ type MinioConfigType struct {
 	UseSSL          bool   `env:"USE_SSL" envDefault:"false"`
 }
 
+// BotConfigType is the Telegram bot token and storage channel.
 type BotConfigType struct {
 	Token     string `env:"TOKEN,required"`
 	ChannelID int64  `env:"CHANNEL_ID,required"`
 }
 
+// TelegramConfigType is MTProto app credentials and session storage.
 type TelegramConfigType struct {
 	AppID      int    `env:"APP_ID,required"`
 	AppHash    string `env:"APP_HASH,required"`
@@ -51,6 +58,7 @@ type TelegramConfigType struct {
 	SessionDir string `env:"SESSION_DIR" envDefault:"sessions"`
 }
 
+// WorkerConfigType is download-worker Telegram tokens and upload retries.
 type WorkerConfigType struct {
 	Tokens           []string      `env:"TOKENS,required"`
 	SessionPrefix    string        `env:"SESSION_PREFIX" envDefault:"worker"`
@@ -59,6 +67,7 @@ type WorkerConfigType struct {
 	UploadRetryDelay time.Duration `env:"UPLOAD_RETRY_DELAY" envDefault:"1s"`
 }
 
+// ByseConfigType is the Byse file-host API client settings.
 type ByseConfigType struct {
 	BaseURL       string        `env:"BASE_URL" envDefault:"https://api.byse.sx"`
 	APIKey        string        `env:"API_KEY"`
@@ -66,7 +75,7 @@ type ByseConfigType struct {
 	UploadTimeout time.Duration `env:"UPLOAD_TIMEOUT" envDefault:"30m"`
 }
 
-// ConfigType holds all configuration values loaded from environment variables, including API settings, MongoDB connection details, debug options, and logging preferences.
+// ConfigType is the process configuration loaded from environment variables.
 type ConfigType struct {
 	ApiConfig      ApiConfigType      `envPrefix:"API_"`
 	AuthConfig     AuthConfigType     `envPrefix:"AUTH_"`

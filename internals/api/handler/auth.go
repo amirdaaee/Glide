@@ -29,6 +29,7 @@ const (
 // flexInt64 unmarshals Telegram claim IDs that may be JSON numbers or strings.
 type flexInt64 int64
 
+// UnmarshalJSON accepts a JSON number or string Telegram ID.
 func (v *flexInt64) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 || string(b) == "null" {
 		*v = 0
@@ -54,6 +55,7 @@ func (v *flexInt64) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// tgProfileClaims is the Telegram OIDC ID-token profile.
 type tgProfileClaims struct {
 	ID                flexInt64 `json:"id"`
 	Name              string    `json:"name"`
@@ -62,6 +64,7 @@ type tgProfileClaims struct {
 	PreferredUsername string    `json:"preferred_username"`
 }
 
+// AuthHandler serves Telegram OIDC login routes.
 type AuthHandler struct {
 	oauth2Config  *oauth2.Config
 	verifier      *oidc.IDTokenVerifier
@@ -71,6 +74,7 @@ type AuthHandler struct {
 
 var _ IApiHandler = (*AuthHandler)(nil)
 
+// RegisterRoutes mounts /auth/login and /auth/callback.
 func (h *AuthHandler) RegisterRoutes(router *gin.Engine) {
 	auth := router.Group("/auth")
 	{
@@ -79,6 +83,7 @@ func (h *AuthHandler) RegisterRoutes(router *gin.Engine) {
 	}
 }
 
+// Login starts the Telegram OAuth PKCE flow.
 func (h *AuthHandler) Login(c *gin.Context) {
 	state, err := randomString(32)
 	if err != nil {
@@ -93,6 +98,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.Redirect(http.StatusFound, h.oauth2Config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)))
 }
 
+// Callback completes OAuth, upserts the user, and returns the ID token.
 func (h *AuthHandler) Callback(c *gin.Context) {
 	if errDesc := c.Query("error"); errDesc != "" {
 		c.Error(apiErr.NewBadrequestError(errors.New(errDesc)))
@@ -165,16 +171,20 @@ func (h *AuthHandler) Callback(c *gin.Context) {
 	})
 }
 
+// setOAuthCookie writes a short-lived HttpOnly OAuth cookie.
 func (h *AuthHandler) setOAuthCookie(c *gin.Context, name, value string) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(name, value, oauthCookieMaxAge, "/auth", "", h.secureCookies, true)
 }
 
+// clearOAuthCookies expires OAuth state and PKCE cookies.
 func (h *AuthHandler) clearOAuthCookies(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(oauthStateCookie, "", -1, "/auth", "", h.secureCookies, true)
 	c.SetCookie(oauthVerifierCookie, "", -1, "/auth", "", h.secureCookies, true)
 }
+
+// NewAuthHandler returns an AuthHandler for Telegram OIDC.
 func NewAuthHandler(authCfg config.AuthConfigType, users service.IUserService) (*AuthHandler, error) {
 	provider, err := oidc.NewProvider(context.Background(), telegramOIDCIssuer)
 	if err != nil {
@@ -197,6 +207,8 @@ func NewAuthHandler(authCfg config.AuthConfigType, users service.IUserService) (
 		secureCookies: authCfg.SecureCookies,
 	}, nil
 }
+
+// randomString returns n random bytes encoded as raw URL-safe base64.
 func randomString(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

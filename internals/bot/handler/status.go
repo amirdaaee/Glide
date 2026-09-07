@@ -6,10 +6,14 @@ import "github.com/amirdaaee/Glide/internals/domain"
 type ClientMediaStatus string
 
 const (
-	ClientStatusRejected   ClientMediaStatus = "rejected"
+	// ClientStatusRejected is sent when the bot will not accept the media.
+	ClientStatusRejected ClientMediaStatus = "rejected"
+	// ClientStatusProcessing is sent while ingest is in progress.
 	ClientStatusProcessing ClientMediaStatus = "processing"
-	ClientStatusFailed     ClientMediaStatus = "failed"
-	ClientStatusSuccess    ClientMediaStatus = "success"
+	// ClientStatusFailed is sent when ingest fails.
+	ClientStatusFailed ClientMediaStatus = "failed"
+	// ClientStatusSuccess is sent when media is ready.
+	ClientStatusSuccess ClientMediaStatus = "success"
 )
 
 // ClientStatusFromMedia maps a stored media status to the client-facing label.
@@ -24,6 +28,7 @@ func ClientStatusFromMedia(status domain.MediaStatus) ClientMediaStatus {
 	}
 }
 
+// terminal reports whether the status is success or failed.
 func (s ClientMediaStatus) terminal() bool {
 	return s == ClientStatusSuccess || s == ClientStatusFailed
 }

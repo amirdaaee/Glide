@@ -13,12 +13,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
+// UserRepository persists User documents in MongoDB.
 type UserRepository struct {
 	coll *mongox.Collection[domain.User]
 }
 
 var _ domain.IUserRepository = (*UserRepository)(nil)
 
+// GetByTelegramID returns the user for a Telegram account ID.
 func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error) {
 	user, err := r.coll.Finder().Filter(query.Eq("TelegramID", telegramID)).FindOne(ctx)
 	if err != nil {
@@ -30,6 +32,7 @@ func (r *UserRepository) GetByTelegramID(ctx context.Context, telegramID int64) 
 	return user, nil
 }
 
+// Create inserts a user.
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	if _, err := r.coll.Creator().InsertOne(ctx, user); err != nil {
 		return fmt.Errorf("can not create user: %w", err)
@@ -37,6 +40,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
+// Save updates user fields by ID.
 func (r *UserRepository) Save(ctx context.Context, user *domain.User) error {
 	updateVal := update.NewBuilder().
 		Set("Username", user.Username).
@@ -56,6 +60,7 @@ func (r *UserRepository) Save(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
+// AddMedia attaches mediaID to the user's media list.
 func (r *UserRepository) AddMedia(ctx context.Context, userID, mediaID bson.ObjectID) error {
 	updateVal := update.NewBuilder().
 		AddToSet("MediaList", mediaID).
@@ -66,6 +71,7 @@ func (r *UserRepository) AddMedia(ctx context.Context, userID, mediaID bson.Obje
 	return nil
 }
 
+// DeleteMedia detaches mediaID from the user's media list.
 func (r *UserRepository) DeleteMedia(ctx context.Context, userID bson.ObjectID, mediaID bson.ObjectID) error {
 	updateVal := update.NewBuilder().
 		Pull("MediaList", mediaID).
@@ -75,6 +81,8 @@ func (r *UserRepository) DeleteMedia(ctx context.Context, userID bson.ObjectID, 
 	}
 	return nil
 }
+
+// NewUserRepository returns a MongoDB user repository.
 func NewUserRepository(db *mongox.Database, name string) domain.IUserRepository {
 	coll := mongox.NewCollection[domain.User](db, name)
 	return &UserRepository{coll: coll}

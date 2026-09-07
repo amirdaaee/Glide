@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Worker extracts a thumbnail from a channel document and stores it.
 type Worker struct {
 	wPool   worker.IWorkerPool
 	objects domain.IMediaObjectRepository
@@ -25,6 +26,7 @@ type Worker struct {
 
 var _ workers.IStepHandler = (*Worker)(nil)
 
+// Handle downloads the document thumbnail and stores it as an object.
 func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.ResultMsg, error) {
 	ll := w.ll.Named("Handle").With(
 		zap.String("task_id", msg.TaskID),
@@ -89,6 +91,7 @@ func (w *Worker) Handle(ctx context.Context, msg pipeline.WorkMsg) (*pipeline.Re
 	return res, nil
 }
 
+// downloadThumbnail returns JPEG/PNG/WebP thumbnail bytes for doc.
 func downloadThumbnail(ctx context.Context, api *tg.Client, doc *tg.Document) ([]byte, string, error) {
 	if api == nil {
 		return nil, "", fmt.Errorf("telegram client is not ready")
@@ -114,6 +117,7 @@ func downloadThumbnail(ctx context.Context, api *tg.Client, doc *tg.Document) ([
 	return buf.Bytes(), mimeFromStorage(kind), nil
 }
 
+// pickThumbnail selects the largest thumbnail, preferring cached bytes.
 func pickThumbnail(thumbs []tg.PhotoSizeClass) (thumbType string, cached []byte) {
 	bestArea := -1
 	for _, t := range thumbs {
@@ -141,6 +145,7 @@ func pickThumbnail(thumbs []tg.PhotoSizeClass) (thumbType string, cached []byte)
 	return thumbType, cached
 }
 
+// mimeFromStorage maps a Telegram storage file type to a MIME type.
 func mimeFromStorage(kind tg.StorageFileTypeClass) string {
 	switch kind.(type) {
 	case *tg.StorageFilePng:
@@ -152,6 +157,7 @@ func mimeFromStorage(kind tg.StorageFileTypeClass) string {
 	}
 }
 
+// New returns an ingest step worker.
 func New(wPool worker.IWorkerPool, objects domain.IMediaObjectRepository) (*Worker, error) {
 	if wPool == nil {
 		return nil, fmt.Errorf("worker pool is nil")

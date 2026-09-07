@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Client is a NATS JetStream publisher and subscriber.
 type Client struct {
 	nc         *natsio.Conn
 	js         natsio.JetStreamContext
@@ -27,14 +28,17 @@ type Client struct {
 var _ pipeline.IPublisher = (*Client)(nil)
 var _ pipeline.ISubscriber = (*Client)(nil)
 
+// PublishWork publishes a work message with a subject-scoped Nats-Msg-Id.
 func (c *Client) PublishWork(ctx context.Context, subject string, msg pipeline.WorkMsg) error {
 	return c.publish(ctx, subject, jetStreamMsgID(subject, msg.TaskID), msg)
 }
 
+// PublishResult publishes a result message with a subject-scoped Nats-Msg-Id.
 func (c *Client) PublishResult(ctx context.Context, subject string, msg pipeline.ResultMsg) error {
 	return c.publish(ctx, subject, jetStreamMsgID(subject, msg.TaskID), msg)
 }
 
+// publish marshals payload and publishes it to subject.
 func (c *Client) publish(ctx context.Context, subject, msgID string, payload any) error {
 	ll := c.ll.Named("publish").With(zap.String("subject", subject), zap.String("msg_id", msgID))
 	data, err := json.Marshal(payload)
@@ -65,6 +69,7 @@ func (c *Client) publish(ctx context.Context, subject, msgID string, payload any
 	return nil
 }
 
+// SubscribeWork consumes work messages from subject in group.
 func (c *Client) SubscribeWork(ctx context.Context, subject, group string, h pipeline.WorkHandler) error {
 	return c.subscribe(ctx, subject, group, func(ctx context.Context, data []byte) error {
 		var msg pipeline.WorkMsg
@@ -80,6 +85,7 @@ func (c *Client) SubscribeWork(ctx context.Context, subject, group string, h pip
 	})
 }
 
+// SubscribeResult consumes result messages from subject in group.
 func (c *Client) SubscribeResult(ctx context.Context, subject, group string, h pipeline.ResultHandler) error {
 	return c.subscribe(ctx, subject, group, func(ctx context.Context, data []byte) error {
 		var msg pipeline.ResultMsg
@@ -95,6 +101,7 @@ func (c *Client) SubscribeResult(ctx context.Context, subject, group string, h p
 	})
 }
 
+// subscribe binds a durable queue consumer until ctx is cancelled.
 func (c *Client) subscribe(ctx context.Context, subject, group string, handle func(context.Context, []byte) error) error {
 	ll := c.ll.Named("subscribe").With(
 		zap.String("subject", subject),
@@ -133,6 +140,7 @@ func (c *Client) subscribe(ctx context.Context, subject, group string, handle fu
 	return nil
 }
 
+// Close closes the NATS connection.
 func (c *Client) Close() {
 	if c.nc != nil {
 		c.ll.Info("closing nats connection")
@@ -140,6 +148,7 @@ func (c *Client) Close() {
 	}
 }
 
+// durableName builds a JetStream durable name from group and subject.
 func durableName(group, subject string) string {
 	s := group + "-" + subject
 	s = strings.ReplaceAll(s, ".", "-")
@@ -156,6 +165,7 @@ func jetStreamMsgID(subject, taskID string) string {
 	return subject + ":" + taskID
 }
 
+// ensureStream creates the JetStream stream if it does not exist.
 func ensureStream(js natsio.JetStreamContext, name string) error {
 	cfg := &natsio.StreamConfig{
 		Name:      name,
@@ -175,6 +185,7 @@ func ensureStream(js natsio.JetStreamContext, name string) error {
 	return nil
 }
 
+// NewClient connects to NATS, ensures the stream, and returns a Client.
 func NewClient(cfg *config.NatsConfigType) (*Client, error) {
 	ll := log.GetLogger(log.PIPELINE).Named("nats")
 	stream := cfg.Stream

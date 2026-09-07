@@ -16,11 +16,14 @@ import (
 //
 //go:generate mockgen -source=handler.go -destination=../../mocks/bot/handler.go -package=mocks
 type IHandler interface {
+	// Register attaches the handler to the update dispatcher.
 	Register(d *tg.UpdateDispatcher)
 }
 
+// messageHandlerFunc handles a Telegram message update.
 type messageHandlerFunc func(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error
 
+// HandlerWithErrorMessage wraps fn and replies with a failed status on error.
 func HandlerWithErrorMessage(fn messageHandlerFunc, name string) messageHandlerFunc {
 	ll := log.Named(log.BOT, "handler").Named(name)
 	return func(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message) error {
@@ -44,6 +47,7 @@ func HandlerWithErrorMessage(fn messageHandlerFunc, name string) messageHandlerF
 	}
 }
 
+// replyText sends a reply to msg and returns the sent message ID.
 func replyText(ctx context.Context, api *tg.Client, entities tg.Entities, msg *tg.Message, text string) (int, error) {
 	peer, err := peerFromMessage(entities, msg)
 	if err != nil {
@@ -84,6 +88,7 @@ func EditText(ctx context.Context, api *tg.Client, peer tg.InputPeerClass, messa
 	return err
 }
 
+// sentMessageID extracts the sent message ID from a send-message updates payload.
 func sentMessageID(upd tg.UpdatesClass) (int, error) {
 	switch u := upd.(type) {
 	case *tg.UpdateShortSentMessage:
@@ -99,6 +104,7 @@ func sentMessageID(upd tg.UpdatesClass) (int, error) {
 	}
 }
 
+// messageIDFromUpdates extracts a message ID from an updates list.
 func messageIDFromUpdates(updates []tg.UpdateClass) (int, error) {
 	for _, up := range updates {
 		switch v := up.(type) {
@@ -117,6 +123,7 @@ func messageIDFromUpdates(updates []tg.UpdateClass) (int, error) {
 	return 0, fmt.Errorf("no sent message id in updates")
 }
 
+// peerFromMessage builds an InputPeer for the chat that sent msg.
 func peerFromMessage(entities tg.Entities, msg *tg.Message) (tg.InputPeerClass, error) {
 	switch p := msg.PeerID.(type) {
 	case *tg.PeerUser:
@@ -136,6 +143,7 @@ func peerFromMessage(entities tg.Entities, msg *tg.Message) (tg.InputPeerClass, 
 	}
 }
 
+// userFromUpdate returns the Telegram user that sent msg.
 func userFromUpdate(entities tg.Entities, msg *tg.Message) (*tg.User, error) {
 	var userID int64
 	switch p := msg.PeerID.(type) {
@@ -155,6 +163,7 @@ func userFromUpdate(entities tg.Entities, msg *tg.Message) (*tg.User, error) {
 	return user, nil
 }
 
+// randomID returns a random int64 for Telegram send requests.
 func randomID() int64 {
 	var b [8]byte
 	_, _ = rand.Read(b[:])

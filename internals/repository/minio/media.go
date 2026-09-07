@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+// Options configures the MinIO object client.
 type Options struct {
 	Endpoint        string
 	AccessKeyID     string
@@ -20,6 +21,7 @@ type Options struct {
 	UseSSL          bool
 }
 
+// MediaRepository stores media objects in a MinIO bucket.
 type MediaRepository struct {
 	client   *miniogo.Client
 	bucket   string
@@ -29,16 +31,19 @@ type MediaRepository struct {
 
 var _ domain.IMediaObjectRepository = (*MediaRepository)(nil)
 
+// PutThumbnail stores a thumbnail object and returns its path.
 func (r *MediaRepository) PutThumbnail(ctx context.Context, id bson.ObjectID, body io.Reader, size int64, contentType string) (string, error) {
 	key := fmt.Sprintf("thumbs/%s%s", id.Hex(), extFromContentType(contentType))
 	return r.put(ctx, key, body, size, contentType)
 }
 
+// Put stores a media object and returns its path.
 func (r *MediaRepository) Put(ctx context.Context, id bson.ObjectID, body io.Reader, size int64, contentType string) (string, error) {
 	key := fmt.Sprintf("media/%s%s", id.Hex(), extFromContentType(contentType))
 	return r.put(ctx, key, body, size, contentType)
 }
 
+// put uploads body to key and returns a /bucket/key path.
 func (r *MediaRepository) put(ctx context.Context, key string, body io.Reader, size int64, contentType string) (string, error) {
 	opts := miniogo.PutObjectOptions{}
 	if contentType != "" {
@@ -50,6 +55,7 @@ func (r *MediaRepository) put(ctx context.Context, key string, body io.Reader, s
 	return fmt.Sprintf("/%s/%s", r.bucket, key), nil
 }
 
+// extFromContentType maps a MIME type to a file extension.
 func extFromContentType(contentType string) string {
 	switch strings.ToLower(contentType) {
 	case "image/png":
@@ -68,6 +74,7 @@ func extFromContentType(contentType string) string {
 	}
 }
 
+// NewMediaRepository returns a MinIO media object repository, creating the bucket if needed.
 func NewMediaRepository(opts Options) (domain.IMediaObjectRepository, error) {
 	cl, err := miniogo.New(opts.Endpoint, &miniogo.Options{
 		Creds:  credentials.NewStaticV4(opts.AccessKeyID, opts.SecretAccessKey, ""),

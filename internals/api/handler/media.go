@@ -13,10 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// MediaUriParam binds the :fid path parameter.
 type MediaUriParam struct {
 	FID int64 `uri:"fid" binding:"required"`
 }
 
+// MediaHandler serves authenticated media HTTP routes.
 type MediaHandler struct {
 	media service.IMediaService
 	auth  *middleware.TgAuthenticationMiddleware
@@ -24,6 +26,7 @@ type MediaHandler struct {
 
 var _ IApiHandler = (*MediaHandler)(nil)
 
+// RegisterRoutes mounts /media routes behind Telegram JWT auth.
 func (h *MediaHandler) RegisterRoutes(router *gin.Engine) {
 	media := router.Group("/media")
 	media.Use(h.auth.MiddlewareFunc())
@@ -34,6 +37,7 @@ func (h *MediaHandler) RegisterRoutes(router *gin.Engine) {
 	}
 }
 
+// List returns media IDs owned by the authenticated Telegram user.
 func (h *MediaHandler) List(c *gin.Context) {
 	telegramID, ok := h.telegramID(c)
 	if !ok {
@@ -51,6 +55,7 @@ func (h *MediaHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, media)
 }
 
+// Get returns a media file owned by the authenticated Telegram user.
 func (h *MediaHandler) Get(c *gin.Context) {
 	telegramID, ok := h.telegramID(c)
 	if !ok {
@@ -73,6 +78,7 @@ func (h *MediaHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, media)
 }
 
+// Delete unlinks a media file from the authenticated Telegram user.
 func (h *MediaHandler) Delete(c *gin.Context) {
 	telegramID, ok := h.telegramID(c)
 	if !ok {
@@ -94,6 +100,7 @@ func (h *MediaHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Media deleted successfully"})
 }
 
+// telegramID reads the authenticated Telegram user ID from the request context.
 func (h *MediaHandler) telegramID(c *gin.Context) (int64, bool) {
 	userID := middleware.GetTgIDFromContext(c)
 	if userID == 0 {
@@ -103,6 +110,7 @@ func (h *MediaHandler) telegramID(c *gin.Context) (int64, bool) {
 	return userID, true
 }
 
+// NewMediaHandler returns a MediaHandler with JWT auth middleware.
 func NewMediaHandler(
 	authCfg config.AuthConfigType,
 	media service.IMediaService,

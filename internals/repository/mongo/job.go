@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
+// JobRepository persists MediaJob and ProcessedTask documents in MongoDB.
 type JobRepository struct {
 	coll      *mongox.Collection[domain.MediaJob]
 	tasksColl *mongox.Collection[domain.ProcessedTask]
@@ -22,6 +23,7 @@ type JobRepository struct {
 
 var _ domain.IJobRepository = (*JobRepository)(nil)
 
+// Create inserts a media job.
 func (r *JobRepository) Create(ctx context.Context, job *domain.MediaJob) error {
 	if _, err := r.coll.Creator().InsertOne(ctx, job); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -32,6 +34,7 @@ func (r *JobRepository) Create(ctx context.Context, job *domain.MediaJob) error 
 	return nil
 }
 
+// GetByMediaID returns the job for a media file.
 func (r *JobRepository) GetByMediaID(ctx context.Context, mediaID bson.ObjectID) (*domain.MediaJob, error) {
 	job, err := r.coll.Finder().Filter(query.Eq("MediaID", mediaID)).FindOne(ctx)
 	if err != nil {
@@ -43,6 +46,7 @@ func (r *JobRepository) GetByMediaID(ctx context.Context, mediaID bson.ObjectID)
 	return job, nil
 }
 
+// GetByIdempotencyKey returns the job for an idempotency key.
 func (r *JobRepository) GetByIdempotencyKey(ctx context.Context, key string) (*domain.MediaJob, error) {
 	job, err := r.coll.Finder().Filter(query.Eq("IdempotencyKey", key)).FindOne(ctx)
 	if err != nil {
@@ -54,6 +58,7 @@ func (r *JobRepository) GetByIdempotencyKey(ctx context.Context, key string) (*d
 	return job, nil
 }
 
+// CompareAndSetStep atomically moves the job from from to to when the version matches.
 func (r *JobRepository) CompareAndSetStep(ctx context.Context, mediaID bson.ObjectID, from, to domain.JobStep, ver int) (bool, error) {
 	filter := query.NewBuilder().
 		Eq("MediaID", mediaID).
@@ -71,6 +76,7 @@ func (r *JobRepository) CompareAndSetStep(ctx context.Context, mediaID bson.Obje
 	return res.MatchedCount > 0, nil
 }
 
+// Save updates job fields by MediaID.
 func (r *JobRepository) Save(ctx context.Context, job *domain.MediaJob) error {
 	updateVal := update.NewBuilder().
 		Set("Step", job.Step).
@@ -90,6 +96,7 @@ func (r *JobRepository) Save(ctx context.Context, job *domain.MediaJob) error {
 	return nil
 }
 
+// CreateProcessedTask inserts a processed-task record.
 func (r *JobRepository) CreateProcessedTask(ctx context.Context, task *domain.ProcessedTask) error {
 	if _, err := r.tasksColl.Creator().InsertOne(ctx, task); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -100,6 +107,7 @@ func (r *JobRepository) CreateProcessedTask(ctx context.Context, task *domain.Pr
 	return nil
 }
 
+// HasProcessedTask reports whether taskID was already recorded for mediaID.
 func (r *JobRepository) HasProcessedTask(ctx context.Context, mediaID bson.ObjectID, taskID string) (bool, error) {
 	filter := query.NewBuilder().
 		Eq("_id", taskID).
@@ -115,6 +123,7 @@ func (r *JobRepository) HasProcessedTask(ctx context.Context, mediaID bson.Objec
 	return true, nil
 }
 
+// ensureIndexes creates unique MediaID and IdempotencyKey indexes.
 func (r *JobRepository) ensureIndexes(ctx context.Context) error {
 	_, err := r.coll.Collection().Indexes().CreateMany(ctx, []mongo.IndexModel{
 		{
@@ -140,6 +149,7 @@ func (r *JobRepository) ensureIndexes(ctx context.Context) error {
 	return nil
 }
 
+// NewJobRepository returns a MongoDB job repository.
 func NewJobRepository(db *mongox.Database, jobsName, tasksName string) (domain.IJobRepository, error) {
 	r := &JobRepository{
 		coll:      mongox.NewCollection[domain.MediaJob](db, jobsName),
