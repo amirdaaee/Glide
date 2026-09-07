@@ -231,6 +231,9 @@ func (h *mediaHandler) buildMediaFileDoc(doc *tg.Document, msgID int, fileID int
 	docMeta.FileSize = doc.Size
 	docMeta.MimeType = doc.MimeType
 	docMeta.FileID = fileID
+	if docMeta.FileName == "" {
+		docMeta.FileName = fmt.Sprintf("media-%d", fileID)
+	}
 	return &domain.MediaFile{
 		Meta:      docMeta,
 		MessageID: msgID,
