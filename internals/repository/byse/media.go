@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/amirdaaee/Glide/internals/domain"
+	"github.com/amirdaaee/Glide/internals/log"
+	"go.uber.org/zap"
 )
 
 type Options struct {
@@ -29,15 +31,19 @@ type MediaRepository struct {
 	client     *http.Client
 	uploadCl   *http.Client
 	uploadWait time.Duration
+	ll         *zap.Logger
 }
 
 var _ domain.IByseMediaRepository = (*MediaRepository)(nil)
 
 func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reader, size int64, contentType string) (*domain.ByseFile, error) {
+	ll := r.ll.Named("Create").With(zap.String("name", name))
 	serverURL, err := r.uploadServer(ctx)
 	if err != nil {
 		return nil, err
 	}
+	ll.Debug("got upload endpoint", zap.String("server", serverURL))
+	ll = ll.With(zap.String("endpoint", serverURL))
 	if r.uploadWait > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.uploadWait)
@@ -64,7 +70,7 @@ func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reade
 		return nil, fmt.Errorf("can not read byse upload response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("can not upload byse file: unexpected http status %d", resp.StatusCode)
+		return nil, fmt.Errorf("can not upload byse file: unexpected http status %d (%s)", resp.StatusCode, string(raw))
 	}
 	var out struct {
 		Msg    string `json:"msg"`
@@ -253,5 +259,6 @@ func NewMediaRepository(opts Options) (domain.IByseMediaRepository, error) {
 		client:     &http.Client{Timeout: timeout},
 		uploadCl:   &http.Client{Timeout: uploadTimeout},
 		uploadWait: uploadTimeout,
+		ll:         log.Named(log.REPOSITORY, "byse"),
 	}, nil
 }

@@ -20,6 +20,7 @@ const (
 	PIPELINE     LogNS = "pipeline"
 	ORCHESTRATOR LogNS = "orchestrator"
 	WORKERS      LogNS = "workers"
+	REPOSITORY   LogNS = "repository"
 )
 
 var loggerOnce sync.Once
