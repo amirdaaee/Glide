@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -47,10 +48,13 @@ func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reade
 		ctx, cancel = context.WithTimeout(ctx, r.uploadWait)
 		defer cancel()
 	}
-	filename := name
-	if filename == "" {
-		filename = "file"
-	}
+	filename := sanitizeUploadName(name)
+	contentType = sanitizeContentType(contentType)
+	ll.Debug("uploading file",
+		zap.String("filename", filename),
+		zap.Int64("size", size),
+		zap.String("content_type", contentType),
+	)
 	resp, err := r.uploadCl.R().
 		SetContext(ctx).
 		SetFormData(map[string]string{"key": r.apiKey}).
@@ -63,14 +67,13 @@ func (r *MediaRepository) Create(ctx context.Context, name string, body io.Reade
 				return io.NopCloser(body), nil
 			},
 		}).
-		EnableForceChunkedEncoding().
 		Post(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("can not upload byse file: %w", err)
 	}
 	raw := resp.Bytes()
 	if resp.GetStatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("can not upload byse file: unexpected http status %d (%s)", resp.GetStatusCode(), string(raw))
+		return nil, fmt.Errorf("can not upload byse file: %s", formatHTTPStatus(resp.GetStatusCode(), raw))
 	}
 	var out struct {
 		Msg    string `json:"msg"`
@@ -210,6 +213,50 @@ func (r *MediaRepository) uploadServer(ctx context.Context) (string, error) {
 	return server, nil
 }
 
+func sanitizeUploadName(name string) string {
+	name = strings.TrimSpace(name)
+	name = path.Base(name)
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '"', '\\':
+			return '_'
+		default:
+			return r
+		}
+	}, name)
+	if name == "" || name == "." || name == "/" {
+		return "file"
+	}
+	return name
+}
+
+func sanitizeContentType(contentType string) string {
+	contentType = strings.TrimSpace(contentType)
+	if i := strings.IndexByte(contentType, ';'); i >= 0 {
+		contentType = strings.TrimSpace(contentType[:i])
+	}
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	return contentType
+}
+
+func formatHTTPStatus(status int, raw []byte) string {
+	body := strings.TrimSpace(string(raw))
+	lower := strings.ToLower(body)
+	if strings.Contains(lower, "<html") || strings.Contains(lower, "<!doctype") {
+		body = http.StatusText(status)
+	}
+	const max = 256
+	if len(body) > max {
+		body = body[:max] + "..."
+	}
+	if body == "" {
+		return fmt.Sprintf("unexpected http status %d", status)
+	}
+	return fmt.Sprintf("unexpected http status %d (%s)", status, body)
+}
+
 func NewMediaRepository(opts Options) (domain.IByseMediaRepository, error) {
 	if strings.TrimSpace(opts.APIKey) == "" {
 		return nil, fmt.Errorf("byse api key is empty")
@@ -232,7 +279,9 @@ func NewMediaRepository(opts Options) (domain.IByseMediaRepository, error) {
 			SetBaseURL(baseURL).
 			SetTimeout(timeout).
 			SetCommonQueryParam("key", opts.APIKey),
-		uploadCl:   req.C().SetTimeout(uploadTimeout),
+		uploadCl: req.C().
+			SetTimeout(uploadTimeout).
+			EnableForceHTTP1(),
 		uploadWait: uploadTimeout,
 		ll:         log.Named(log.REPOSITORY, "byse"),
 	}, nil
